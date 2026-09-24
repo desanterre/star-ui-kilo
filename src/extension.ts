@@ -5,6 +5,7 @@ import { Bridge } from "./bridge"
 import { DemoDriver } from "./demo"
 import { KILO_EXTENSION_ID, PluginInstaller, isLegacyKilo, kiloConfigDir, starHome } from "./kilo"
 import { OfficeModel } from "./office"
+import { forgetNote, profilesFile, readProfile, saveProfile } from "./profiles"
 import type {
   BridgeEvent,
   BridgeSource,
@@ -12,6 +13,7 @@ import type {
   FromWebview,
   OfficeSnapshot,
   PluginResult,
+  ProfileTarget,
   ToWebview,
   TranscriptMessage,
   WebviewCommand,
@@ -31,10 +33,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {}
 
-// Plugins older than 0.1.4 answer "invalid command" to the chat and stop commands.
+// Older plugins answer "invalid command" to the commands they do not know yet.
 const OUTDATED_PLUGIN_ERROR = "invalid command"
 const OUTDATED_PLUGIN = "Kilo Code is still running the previous Star UI plugin: reload the window to use the new one."
 const explainError = (error?: string) => (error === OUTDATED_PLUGIN_ERROR ? OUTDATED_PLUGIN : error)
+const validTarget = (t: ProfileTarget | undefined): t is ProfileTarget =>
+  !!t && (t.kind === "team" || (t.kind === "agent" && typeof t.name === "string" && /^[\w.-]{1,60}$/.test(t.name)))
 
 class StarOffice implements vscode.Disposable, vscode.WebviewViewProvider {
   private readonly output = vscode.window.createOutputChannel("Star UI for Kilo")
@@ -49,6 +53,7 @@ class StarOffice implements vscode.Disposable, vscode.WebviewViewProvider {
   private broadcastTimer?: NodeJS.Timeout
   private ticker?: NodeJS.Timeout
   private lastSent = ""
+  private kiloLive?: boolean
   private readonly diagnostics = { webviewReady: 0, webviewErrors: [] as string[] }
 
   constructor(private readonly context: vscode.ExtensionContext) {
@@ -215,6 +220,50 @@ class StarOffice implements vscode.Disposable, vscode.WebviewViewProvider {
         } satisfies ToWebview)
         return
       }
+      case "profileLoad": {
+        const reply = this.loadProfile(msg.target)
+        await webview.postMessage({ type: "profile", requestId: msg.requestId, target: msg.target, ...reply } satisfies ToWebview)
+        return
+      }
+      case "profileSave": {
+        const reply = this.saveProfile(msg.target, msg.context, msg.folders)
+        await webview.postMessage({ type: "profileSaved", requestId: msg.requestId, ...reply } satisfies ToWebview)
+        if (reply.reloadNeeded) {
+          const pick = await vscode.window.showInformationMessage(
+            "Star UI: reload the window so Kilo gives access to the linked folders.",
+            "Reload Window",
+          )
+          if (pick) await vscode.commands.executeCommand("workbench.action.reloadWindow")
+        }
+        return
+      }
+      case "profileForget": {
+        try {
+          if (validTarget(msg.target)) forgetNote(profilesFile(starHome()), msg.target, String(msg.id))
+        } catch (err) {
+          this.log(`Could not delete the note: ${String(err)}`)
+        }
+        const reply = this.loadProfile(msg.target)
+        await webview.postMessage({ type: "profile", requestId: msg.requestId, target: msg.target, ...reply } satisfies ToWebview)
+        return
+      }
+      case "pickFolders": {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: true,
+          openLabel: "Link",
+          title: "Folders the agent can read",
+          defaultUri: vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, "..") : undefined,
+        })
+        await webview.postMessage({ type: "folders", requestId: msg.requestId, paths: (uris ?? []).map((u) => u.fsPath) } satisfies ToWebview)
+        return
+      }
+      case "briefing": {
+        const reply = await this.briefing(msg.agent)
+        await webview.postMessage({ type: "briefing", requestId: msg.requestId, ...reply } satisfies ToWebview)
+        return
+      }
       case "log":
         if (msg.level === "error") this.diagnostics.webviewErrors.push(String(msg.message).slice(0, 500))
         else if (msg.message === "office ready") this.diagnostics.webviewReady++
@@ -316,6 +365,11 @@ class StarOffice implements vscode.Disposable, vscode.WebviewViewProvider {
   }
 
   private updateStatusBar(snapshot: OfficeSnapshot): void {
+    if (snapshot.connection.live !== this.kiloLive) {
+      // Hides "Try the demo" in the ★ view while Kilo Code is connected.
+      this.kiloLive = snapshot.connection.live
+      void vscode.commands.executeCommand("setContext", "starUiKilo.kiloLive", this.kiloLive)
+    }
     if (!this.cfg().get<boolean>("statusBar", true)) {
       this.statusBar.hide()
       return
@@ -466,6 +520,43 @@ class StarOffice implements vscode.Disposable, vscode.WebviewViewProvider {
       await new Promise((r) => setTimeout(r, 600))
     }
     return this.sendPrompt(root.speaker, clean, meetingID, root.dir)
+  }
+
+  // ---------- profiles ----------
+  private loadProfile(target: ProfileTarget): { profile?: ReturnType<typeof readProfile>; error?: string } {
+    if (!validTarget(target)) return { error: "Unknown profile" }
+    try {
+      return { profile: readProfile(profilesFile(starHome()), target) }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  }
+
+  private saveProfile(
+    target: ProfileTarget,
+    context: unknown,
+    folders: unknown,
+  ): { ok: boolean; error?: string; reloadNeeded?: boolean } {
+    if (!validTarget(target)) return { ok: false, error: "Unknown profile" }
+    const list = (Array.isArray(folders) ? folders : [])
+      .filter((f): f is { path: string; note?: string } => !!f && typeof f.path === "string")
+      .map((f) => ({ path: f.path, note: typeof f.note === "string" ? f.note : undefined }))
+    try {
+      const { foldersChanged } = saveProfile(profilesFile(starHome()), target, { context: String(context ?? ""), folders: list })
+      this.log(`Saved the ${target.kind === "team" ? "team" : target.name} profile`)
+      return { ok: true, reloadNeeded: foldersChanged && this.installer.isInstalled() }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  }
+
+  /** The exact text the plugin adds to an agent's system prompt. */
+  private async briefing(agent: string): Promise<{ text?: string; error?: string }> {
+    if (this.demo.active) return { error: "Connect Kilo Code to see the briefing." }
+    const target = this.model.liveInstances(undefined, process.pid)[0]
+    if (!target) return { error: "Kilo Code is not connected." }
+    const result = await this.bridge.sendCommand({ pid: target.pid, dir: target.dir }, { kind: "briefing", agent }, 10_000)
+    return result.ok ? { text: result.text ?? "" } : { error: explainError(result.error) }
   }
 
   private async openSession(agent: string): Promise<void> {

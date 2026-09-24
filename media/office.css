@@ -27,12 +27,13 @@ body {
   background: var(--bg);
   color: #eee;
   font-family: var(--pixel-font);
-  min-height: 100%;
+  height: 100%;
 }
 
+/* The office always fits the view: no page scroll, the lists scroll inside their panels. */
 body {
-  padding: 10px;
-  overflow-x: hidden;
+  padding: 8px;
+  overflow: hidden;
 }
 
 button {
@@ -40,16 +41,26 @@ button {
 }
 
 #app {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 /* ---------- game ---------- */
+/* The game takes the space left by the panels, at 16:9. */
+#game-area {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  container-type: size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 #game-container {
   position: relative;
-  width: min(100%, 1280px, calc((100vh - 40px) * 16 / 9));
+  width: min(100cqw, calc(100cqh * 16 / 9), 1280px);
   aspect-ratio: 16 / 9;
   image-rendering: pixelated;
   overflow: hidden;
@@ -120,11 +131,32 @@ button {
 
 /* ---------- panels ---------- */
 #bottom-panels {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  width: min(100%, 1280px);
-  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1280px;
+  align-self: center;
+  height: clamp(160px, 32vh, 280px);
+}
+#panel-tabs {
+  display: none;
+  gap: 6px;
+}
+#panel-tabs button {
+  flex: 1;
+  background: #262a38;
+  color: #cbd5e1;
+  border: 2px solid #0e1119;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#panel-tabs button[aria-selected="true"] {
+  color: var(--gold);
+  border-color: #6b5b2a;
+  background: #2a2438;
 }
 
 .pixel-panel {
@@ -132,13 +164,13 @@ button {
   background: var(--panel);
   border: 4px solid var(--panel-border);
   padding: 10px;
-  height: 280px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow: hidden;
-  flex: 1 1 300px;
-  min-width: 260px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
 }
 /* dashed pixel frame from the original design */
 .pixel-panel::before {
@@ -187,7 +219,7 @@ button {
 #memo-panel {
   background-image: var(--memo-bg);
   background-size: 100% 100%;
-  flex: 1.2 1 340px;
+  flex: 1.2 1 0;
 }
 /* paper area of memo-bg.webp, in % of the panel */
 .memo-inner {
@@ -598,31 +630,249 @@ button {
   font-size: 16px;
 }
 
-/* short & wide viewports (e.g. the bottom panel next to the terminal): game left, panels right */
+/* finished meetings, folded under the team list */
+#past-meetings {
+  margin-top: 4px;
+}
+#past-meetings summary {
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 12px;
+  padding: 4px 2px 8px;
+  user-select: none;
+}
+#past-meetings summary:hover {
+  color: var(--gold);
+}
+#past-list .meeting-item {
+  opacity: 0.85;
+}
+
+/* narrow views: one panel at a time, picked with tabs */
+@media (max-width: 899px) {
+  #bottom-panels {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: clamp(190px, 38vh, 300px);
+  }
+  #panel-tabs {
+    display: flex;
+  }
+  #bottom-panels > .pixel-panel {
+    display: none;
+  }
+  #bottom-panels > .pixel-panel.active {
+    display: flex;
+  }
+  #bottom-panels > .pixel-panel .panel-title {
+    display: none;
+  }
+}
+
+/* tall views: the game takes its width, the panels get the rest of the height */
+@media (max-aspect-ratio: 4/5) {
+  #game-area {
+    flex: none;
+    height: calc((100vw - 16px) * 9 / 16);
+  }
+  #bottom-panels {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+/* short & wide views (e.g. the bottom panel next to the terminal): game left, panels right */
 @media (min-aspect-ratio: 2/1) {
   body {
     padding: 6px;
   }
   #app {
     flex-direction: row;
-    align-items: flex-start;
-  }
-  #game-container {
-    width: min(calc((100vh - 12px) * 16 / 9), 68vw);
-    flex: none;
   }
   #bottom-panels {
     flex-direction: column;
-    flex-wrap: nowrap;
-    height: calc(100vh - 12px);
-    overflow-y: auto;
-    width: auto;
-    flex: 1;
-    min-width: 240px;
+    height: 100%;
+    width: clamp(240px, 28vw, 380px);
+    max-width: none;
   }
-  .pixel-panel {
-    flex: none;
-    height: 240px;
-    min-width: 0;
+}
+@media (min-aspect-ratio: 2/1) and (max-height: 619px) {
+  #bottom-panels {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
   }
+  #panel-tabs {
+    display: flex;
+  }
+  #bottom-panels > .pixel-panel {
+    display: none;
+  }
+  #bottom-panels > .pixel-panel.active {
+    display: flex;
+  }
+  #bottom-panels > .pixel-panel .panel-title {
+    display: none;
+  }
+}
+
+/* ---------- profiles ---------- */
+#team-profile-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--gold);
+  background: #221f30;
+  border: 1px dashed #6b5b2a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#team-profile-btn:hover {
+  background: #2a2438;
+  border-style: solid;
+}
+#chat-tabs {
+  display: flex;
+  gap: 6px;
+}
+#chat-tabs[hidden] {
+  display: none;
+}
+#chat-tabs button {
+  flex: 1;
+  background: #262a38;
+  color: #cbd5e1;
+  border: 2px solid #0e1119;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#chat-tabs button[aria-selected="true"] {
+  color: var(--gold);
+  border-color: #6b5b2a;
+  background: #2a2438;
+}
+#chat-panel [hidden] {
+  display: none !important;
+}
+#profile-view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 4px 8px;
+}
+#profile-role {
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.profile-label {
+  color: var(--gold);
+  font-size: 13px;
+  margin-top: 8px;
+}
+.profile-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+#profile-context {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  background: #0f121b;
+  color: #e5e7eb;
+  border: 2px solid #3a3f4f;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--pixel-font);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#profile-context:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.profile-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #262a38;
+  border: 1px solid #3a3f4f;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 12px;
+}
+.profile-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: #e5e7eb;
+}
+.profile-note {
+  flex: 1;
+  min-width: 0;
+  color: #e5e7eb;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.profile-note-meta {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+.profile-remove {
+  flex: none;
+  background: none;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.profile-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 0;
+}
+#profile-add-folders {
+  align-self: flex-start;
+}
+#profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+#profile-result {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+}
+#profile-result.ok {
+  color: #86efac;
+}
+#profile-result.err {
+  color: #fca5a5;
+}
+#profile-briefing {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f121b;
+  border: 1px solid #3a3f4f;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #d1d5db;
+  max-height: 50vh;
+  overflow: auto;
 }

@@ -241,6 +241,40 @@ describe("OfficeModel", () => {
     )
   })
 
+  it("moves a finished meeting to the past meetings, and keeps it once its sessions are forgotten", () => {
+    const m = model([
+      { t: "session", sid: "root", agent: "manager", title: "Ship the feature" },
+      { t: "status", sid: "root", status: "busy" },
+      { t: "session", sid: "a", parentID: "root", agent: "architect" },
+      { t: "status", sid: "a", status: "idle" },
+      { t: "status", sid: "root", status: "idle" },
+      { t: "session", sid: "other", agent: "code" },
+      { t: "status", sid: "other", status: "busy" },
+    ])
+    let snap = m.snapshot(CONN, T0 + 10)
+    assert.deepEqual(snap.meetings, [])
+    assert.deepEqual(
+      snap.pastMeetings.map((x) => [x.id, x.members]),
+      [["root", ["manager", "architect"]]],
+    )
+
+    // Long after, the sessions are forgotten but the meeting can still be read.
+    m.prune(T0 + 31 * 60_000)
+    snap = m.snapshot(CONN, T0 + 31 * 60_000)
+    assert.equal(snap.guests.find((c) => c.name === "architect")?.sessionID, undefined)
+    assert.deepEqual(
+      snap.pastMeetings.map((x) => x.id),
+      ["root"],
+    )
+    assert.deepEqual(
+      m.meetingSessions("root").map((x) => [x.sessionID, x.speaker]),
+      [
+        ["root", "manager"],
+        ["a", "architect"],
+      ],
+    )
+  })
+
   it("stops a character together with the sub-agents it started", () => {
     const m = model([
       { t: "session", sid: "root", agent: "manager" },

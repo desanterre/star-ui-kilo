@@ -48,6 +48,18 @@ writeFileSync(
   join(tmp, "star", "team.json"),
   JSON.stringify({ members: [{ name: "other-expert", repo: otherRepo, agent: "ask", description: "Knows the other repo" }] }),
 )
+// Profiles set in the office: a team context, and a linked folder for the reviewer.
+const linked = join(tmp, "linked-repo")
+mkdirSync(linked, { recursive: true })
+writeFileSync(join(linked, "go.mod"), "module example.com/linked\n\ngo 1.22\n")
+writeFileSync(join(linked, "NOTES.txt"), "The deployment window is Tuesday.\n")
+writeFileSync(
+  join(tmp, "star", "profiles.json"),
+  JSON.stringify({
+    team: { context: "The team code is ZEBRA-4412." },
+    agents: { reviewer: { context: "Always answer in English.", folders: [linked] } },
+  }),
+)
 writeFileSync(
   join(project, ".kilo", "agent", "reviewer.md"),
   "---\ndescription: Reviews changes for bugs.\nmode: all\ncolor: \"#f59e0b\"\n---\nYou review code.\n",
@@ -129,6 +141,9 @@ try {
   check(!!roster && roster.agents.some((a) => a.name === "other-expert" && a.teammate), "roster contains the cross-repo teammate")
   const tools = await (await api("/experimental/tool/ids")).json()
   check(Array.isArray(tools) && tools.includes("ask_teammate"), "Kilo registered the ask_teammate tool")
+  check(Array.isArray(tools) && tools.includes("remember"), "Kilo registered the remember tool")
+  const reviewer = agents.find((a) => a.name === "reviewer")
+  check(!!reviewer && JSON.stringify(reviewer).includes(JSON.stringify(`${linked}/*`).slice(1, -1)), "the reviewer may read its linked folder")
 
   const session = await (await api("/session", { method: "POST", body: "{}" })).json()
   const created = await until(() => seen.find((e) => e.t === "session" && e.sid === session.id))
@@ -167,6 +182,34 @@ try {
     user && user.model && user.model.providerID === "kilo" && user.model.modelID === "kilo-auto/free",
     `prompt uses Kilo Code's model (${user && user.model ? user.model.providerID + "/" + user.model.modelID : "none"})`,
   )
+  // Briefing: what the plugin adds to the reviewer's system prompt.
+  const brief = await bridge.sendCommand({ pid: target.pid, dir: target.dir }, { kind: "briefing", agent: "reviewer" }, 20000)
+  check(
+    brief.ok && brief.text.includes("ZEBRA-4412") && brief.text.includes("Go module example.com/linked") && brief.text.includes("**other-expert**"),
+    "the briefing holds the team context, the linked folder and the teammates",
+  )
+  if (!offline) {
+    // The briefing reaches the model: only the system prompt holds the team code.
+    const asked = await bridge.sendCommand(
+      { pid: target.pid, dir: target.dir },
+      {
+        kind: "prompt",
+        agent: "reviewer",
+        mode: "all",
+        text: "What is the team code written in your instructions? Reply with the code only.",
+        model: { providerID: "kilo", modelID: "kilo-auto/free" },
+      },
+      20000,
+    )
+    const answered = await until(async () => {
+      const status = await (await api("/session/status")).json()
+      if (status[asked.sessionID] && status[asked.sessionID].type !== "idle") return undefined
+      const list = await (await api(`/session/${asked.sessionID}/message`)).json()
+      const reply = (Array.isArray(list) ? list : []).filter((m) => m.info && m.info.role === "assistant").pop()
+      return reply && reply.parts.filter((p) => p.type === "text").map((p) => p.text).join(" ")
+    }, 90000)
+    check(!!answered && answered.includes("ZEBRA-4412"), `the model received the briefing (${answered ? answered.slice(0, 60) : "no answer"})`)
+  }
   const snap = model.snapshot({ pluginInstalled: true, kiloDetected: true, live: true, canPrompt: true, demo: false })
   console.log(
     "office:",

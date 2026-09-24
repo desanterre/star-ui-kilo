@@ -1,4 +1,4 @@
-// star-ui-kilo-plugin v0.1.4
+// star-ui-kilo-plugin v0.1.5
 //
 // Installed by the "Star UI for Kilo" VS Code extension (https://github.com/desanterre/star-ui-kilo).
 //
@@ -9,7 +9,10 @@
 //   2. lets you prompt an agent from the office: the panel queues a prompt, this plugin
 //      picks it up and sends it through Kilo's own authenticated client;
 //   3. adds an `ask_teammate` tool when ~/.star-ui-kilo/team.json lists specialists of
-//      other repositories, so an agent can consult another repo's agent and get its answer.
+//      other repositories, so an agent can consult another repo's agent and get its answer;
+//   4. briefs every agent at each turn: its role, its teammates, the custom context and the
+//      linked folders set in the office (~/.star-ui-kilo/profiles.json), and the notes saved
+//      with the `remember` tool. Linked folders are readable without asking.
 //
 // - Traffic only goes to 127.0.0.1, to bridges registered in ~/.star-ui-kilo/bridges/.
 // - No file contents, model outputs or credentials are ever sent to the panel.
@@ -21,10 +24,11 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 
-const VERSION = "0.1.4"
+const VERSION = "0.1.5"
 const HOME = process.env.STAR_UI_KILO_HOME || path.join(os.homedir(), ".star-ui-kilo")
 const REGISTRY_DIR = path.join(HOME, "bridges")
 const TEAM_FILE = path.join(HOME, "team.json")
+const PROFILES_FILE = path.join(HOME, "profiles.json")
 const FLUSH_MS = 120
 const REGISTRY_TTL_MS = 3000
 const HEARTBEAT_MS = 30000
@@ -34,6 +38,13 @@ const MAX_CACHED_SESSIONS = 60
 const ROSTER_REFRESH_MS = 60000
 const POLL_TIMEOUT_MS = 25000
 const MAX_PROMPT_CHARS = 20000
+const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
+const MAX_CONTEXT_CHARS = 8000
+const MAX_FOLDERS = 20
+const MAX_NOTES = 40
+const MAX_NOTE_CHARS = 500
+const MAX_BRIEFING_CHARS = 24000
+const FOLDER_CARD_TTL_MS = 5 * 60000
 const PARENT_PID = Number(process.env.KILO_PARENT_PID) || undefined
 const CLIENT = process.env.KILO_CLIENT || "cli"
 
@@ -294,6 +305,7 @@ function handle(event, ctx) {
       const info = p.info
       if (!info || info.role !== "assistant") return
       const agent = short(info.agent || info.mode, 40)
+      if (agent) rememberAgent(info.sessionID, agent)
       if (!agent || lastAgent.get(info.sessionID) === agent) return
       lastAgent.set(info.sessionID, agent)
       return push({ t: "agent", sid: info.sessionID, agent }, ctx)
@@ -390,6 +402,7 @@ async function refreshRoster(ctx) {
   const list = unwrap(await ctx.client.app.agents({ query: { directory: ctx.directory } }))
   if (!Array.isArray(list)) return
   ctx.agentModels = new Map(list.filter((a) => a && a.name).map((a) => [a.name, !!a.model]))
+  ctx.roster = list.filter((a) => a && typeof a.name === "string")
   const agents = list
     .filter((a) => a && typeof a.name === "string")
     .map((a) => ({
@@ -514,6 +527,10 @@ async function runCommand(cmd, ctx) {
     }
     return { id: cmd.id, ok: true }
   }
+  if (cmd.kind === "briefing") {
+    if (typeof cmd.agent !== "string") return { id: cmd.id, ok: false, error: "invalid command" }
+    return { id: cmd.id, ok: true, text: await briefing(cmd.agent, ctx) }
+  }
   if (cmd.kind === "messages") {
     if (typeof cmd.sessionID !== "string") return { id: cmd.id, ok: false, error: "invalid command" }
     const list = unwrap(
@@ -620,6 +637,273 @@ function teammateTools(ctx) {
   }
 }
 
+// ---------- profiles: team awareness, custom context, linked folders, memory ----------
+
+let profilesCache = { mtime: -1, value: emptyProfiles() }
+
+function emptyProfiles() {
+  return { team: { context: "", folders: [], memory: [] }, agents: {} }
+}
+
+function cleanProfile(raw) {
+  const p = raw && typeof raw === "object" ? raw : {}
+  const folders = (Array.isArray(p.folders) ? p.folders : [])
+    .map((f) => (typeof f === "string" ? { path: f } : f))
+    .filter((f) => f && typeof f.path === "string" && f.path.trim())
+    .slice(0, MAX_FOLDERS)
+    .map((f) => ({ path: path.resolve(expandHome(f.path.trim())), note: short(f.note, 200) }))
+  const memory = (Array.isArray(p.memory) ? p.memory : [])
+    .filter((n) => n && typeof n.text === "string" && n.text.trim())
+    .slice(-MAX_NOTES)
+    .map((n) => ({ id: String(n.id || ""), text: String(n.text).slice(0, MAX_NOTE_CHARS), at: Number(n.at) || 0, by: short(n.by, 40) }))
+  return { context: typeof p.context === "string" ? p.context.slice(0, MAX_CONTEXT_CHARS) : "", folders, memory }
+}
+
+function readProfiles() {
+  try {
+    const mtime = fs.statSync(PROFILES_FILE).mtimeMs
+    if (mtime === profilesCache.mtime) return profilesCache.value
+    const raw = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8"))
+    const agents = {}
+    for (const [name, value] of Object.entries((raw && raw.agents) || {})) {
+      if (/^[\w.-]{1,60}$/.test(name)) agents[name] = cleanProfile(value)
+    }
+    profilesCache = { mtime, value: { team: cleanProfile(raw && raw.team), agents } }
+  } catch {
+    profilesCache = { mtime: -1, value: emptyProfiles() }
+  }
+  return profilesCache.value
+}
+
+// Read-modify-write with an atomic rename, so the office and the plugin never lose each other's changes.
+function updateProfiles(mutate) {
+  let raw = {}
+  try {
+    raw = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")) || {}
+  } catch {}
+  mutate(raw)
+  fs.mkdirSync(HOME, { recursive: true })
+  const tmp = `${PROFILES_FILE}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(raw, null, 2) + "\n", { mode: 0o600 })
+  fs.renameSync(tmp, PROFILES_FILE)
+  profilesCache.mtime = -1
+}
+
+// sid -> agent, learned from Kilo hooks and events; bounded.
+const sessionAgents = new Map()
+function rememberAgent(sid, agent) {
+  if (!sid || !agent) return
+  if (!sessionAgents.has(sid) && sessionAgents.size >= 500) sessionAgents.delete(sessionAgents.keys().next().value)
+  sessionAgents.set(sid, agent)
+}
+
+async function agentOf(sid, ctx) {
+  if (teammateSessions.has(sid)) return teammateSessions.get(sid)
+  if (sessionAgents.has(sid)) return sessionAgents.get(sid)
+  if (!ctx.client) return undefined
+  try {
+    const list = unwrap(
+      await Promise.race([
+        ctx.client.session.messages({ path: { id: sid }, query: { directory: ctx.directory } }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2000)),
+      ]),
+    )
+    const last = (Array.isArray(list) ? list : []).map((m) => m && m.info).filter((i) => i && (i.agent || i.mode)).pop()
+    const agent = last && (last.agent || last.mode)
+    if (agent) rememberAgent(sid, agent)
+    return agent
+  } catch {
+    return undefined
+  }
+}
+
+function readText(file, max) {
+  try {
+    const fd = fs.openSync(file, "r")
+    try {
+      const buf = Buffer.alloc(max)
+      const n = fs.readSync(fd, buf, 0, max, 0)
+      return buf.subarray(0, n).toString("utf8")
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+}
+
+// What a linked folder is, in a few lines: stack, layout and the start of its instructions.
+const folderCards = new Map()
+function folderCard(dir) {
+  const cached = folderCards.get(dir)
+  if (cached && Date.now() - cached.at < FOLDER_CARD_TTL_MS) return cached.text
+  let text
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !e.name.startsWith(".") || e.name === ".github")
+    const names = new Set(entries.map((e) => e.name))
+    const facts = []
+    const goMod = names.has("go.mod") && readText(path.join(dir, "go.mod"), 4000)
+    if (goMod) {
+      const mod = /^module\s+(\S+)/m.exec(goMod)
+      const ver = /^go\s+(\S+)/m.exec(goMod)
+      facts.push(`Go module ${mod ? mod[1] : "?"}${ver ? ` (go ${ver[1]})` : ""}`)
+      for (const dep of ["sigs.k8s.io/controller-runtime", "k8s.io/client-go", "github.com/operator-framework"]) {
+        if (goMod.includes(dep)) facts.push(`uses ${dep}`)
+      }
+    }
+    if (names.has("PROJECT")) {
+      const project = readText(path.join(dir, "PROJECT"), 2000) || ""
+      const domain = /^domain:\s*(\S+)/m.exec(project)
+      facts.push(`Kubebuilder project${domain ? ` (domain ${domain[1]})` : ""}`)
+    }
+    const pkg = names.has("package.json") && readJsonFile(path.join(dir, "package.json"))
+    if (pkg) facts.push(`Node package ${pkg.name || "?"}`)
+    if (names.has("Cargo.toml")) facts.push("Rust crate")
+    if (names.has("pyproject.toml") || names.has("requirements.txt")) facts.push("Python project")
+    if (names.has("Chart.yaml")) facts.push("Helm chart")
+    if (names.has("Dockerfile")) facts.push("Dockerfile")
+    if (names.has("Makefile")) facts.push("Makefile")
+    const layout = entries
+      .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+      .slice(0, 30)
+      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+    const lines = []
+    if (facts.length) lines.push(`Stack: ${facts.join(", ")}.`)
+    lines.push(`Top level: ${layout.join(" ") || "(empty)"}`)
+    const doc = ["AGENTS.md", "README.md", "readme.md"].find((n) => names.has(n))
+    if (doc) {
+      const excerpt = (readText(path.join(dir, doc), 1500) || "").trim()
+      if (excerpt) lines.push(`${doc} (start):\n${excerpt.split("\n").map((l) => `> ${l}`).join("\n")}`)
+    }
+    text = lines.join("\n")
+  } catch {
+    text = "Not found on this machine."
+  }
+  folderCards.set(dir, { at: Date.now(), text })
+  return text
+}
+
+function listTeam(ctx, self) {
+  const roster = Array.isArray(ctx.roster) ? ctx.roster : []
+  return roster.filter(
+    (a) => a.name !== self && !INTERNAL_AGENTS.has(a.name) && !a.hidden && !(a.builtIn || a.native),
+  )
+}
+
+// The text added to an agent's system prompt at every turn.
+async function briefing(agent, ctx) {
+  if (!ctx.roster) {
+    try {
+      await refreshRoster(ctx)
+    } catch {}
+  }
+  const roster = Array.isArray(ctx.roster) ? ctx.roster : []
+  const mates = readTeam()
+  const mate = mates.find((m) => m.name === agent)
+  const me = roster.find((a) => a.name === agent)
+  const profiles = readProfiles()
+  const own = profiles.agents[agent] || cleanProfile({})
+  const team = listTeam(ctx, agent)
+  const lead = me && me.mode === "primary"
+  const out = ["# Team briefing (Star UI)"]
+  const role = (mate && mate.description) || (me && me.description)
+  out.push(`You are **${agent}**${role ? `: ${short(role, 400)}` : "."}${mate ? ` You are the expert of ${mate.repo}.` : ""}`)
+  if (team.length) {
+    out.push("", "## Your team", "These AI agents work with you. Each one owns its role:")
+    for (const a of team) out.push(`- **${a.name}**${a.mode === "primary" ? " (lead)" : ""}: ${short(a.description, 240) || "no description"}`)
+    out.push(
+      "",
+      lead
+        ? "Delegate each part of the work to the teammate whose role fits best, with the `task` tool (`subagent_type` = its name), and give it everything it needs: it does not see this conversation."
+        : "Stay within your role. When part of the work belongs to another role, say so in your answer and name the teammate who should take it; if you have the `task` tool, you may ask that teammate directly.",
+    )
+  }
+  const others = mates.filter((m) => m.name !== agent)
+  if (others.length && !mate) {
+    out.push("", "## Experts of other repositories", "Ask them with the `ask_teammate` tool:")
+    for (const m of others) out.push(`- **${m.name}**: ${short(m.description, 200) || "specialist"} (${m.repo})`)
+  }
+  if (profiles.team.context.trim()) out.push("", "## Team context", profiles.team.context.trim())
+  if (own.context.trim()) out.push("", "## Your context", own.context.trim())
+  const notes = [...profiles.team.memory.map((n) => ({ ...n, scope: "team" })), ...own.memory.map((n) => ({ ...n, scope: "you" }))]
+  if (notes.length) {
+    out.push("", "## Memory", "Notes saved in earlier conversations (newest last):")
+    for (const n of notes.slice(-MAX_NOTES)) out.push(`- [${n.scope}${n.by && n.scope === "team" ? `, by ${n.by}` : ""}] ${n.text}`)
+  }
+  const folders = []
+  for (const f of [...profiles.team.folders, ...(mate ? [] : own.folders)]) if (!folders.some((x) => x.path === f.path)) folders.push(f)
+  if (folders.length) {
+    out.push("", "## Linked folders", "Besides the current project, you can read these folders without asking; use absolute paths with your tools:")
+    for (const f of folders) out.push("", `### ${path.basename(f.path)}: ${f.path}${f.note ? ` (${f.note})` : ""}`, folderCard(f.path))
+  }
+  out.push(
+    "",
+    "Use the `remember` tool to save a durable fact for future conversations (a decision, a convention, a pitfall): for yourself, or for the whole team. Do not save task progress.",
+  )
+  const text = out.join("\n")
+  return text.length > MAX_BRIEFING_CHARS ? text.slice(0, MAX_BRIEFING_CHARS - 1) + "…" : text
+}
+
+// Linked folders need no approval: Kilo's own permission rules, added when Kilo starts.
+function addFolderRules(target, folders) {
+  if (!folders.length || !target || typeof target !== "object") return
+  if (target.permission !== undefined && (typeof target.permission !== "object" || target.permission === null)) return
+  const permission = target.permission || (target.permission = {})
+  const current = permission.external_directory
+  const rules = typeof current === "string" ? { "*": current } : current && typeof current === "object" ? { ...current } : {}
+  for (const f of folders) {
+    const dir = f.path.replace(/[\\/]+$/, "")
+    rules[`${dir}/*`] = "allow"
+    if (dir.includes("\\")) rules[`${dir.replace(/\\/g, "/")}/*`] = "allow"
+  }
+  permission.external_directory = rules
+}
+
+function applyFolderAccess(config) {
+  if (!config || typeof config !== "object") return
+  const profiles = readProfiles()
+  addFolderRules(config, profiles.team.folders)
+  for (const [name, profile] of Object.entries(profiles.agents)) {
+    if (!profile.folders.length) continue
+    if (!config.agent || typeof config.agent !== "object") config.agent = {}
+    if (!config.agent[name] || typeof config.agent[name] !== "object") config.agent[name] = {}
+    addFolderRules(config.agent[name], profile.folders)
+  }
+}
+
+async function rememberNote(ctx, args, toolCtx) {
+  toolCtx = toolCtx || {}
+  const note = String((args && args.note) || "").trim()
+  if (!note) return "Nothing to remember: the note is empty."
+  const agent = toolCtx.agent || (toolCtx.sessionID && (await agentOf(toolCtx.sessionID, ctx))) || "agent"
+  const scope = args && args.scope === "team" ? "team" : "self"
+  const entry = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, text: note.slice(0, MAX_NOTE_CHARS), at: Date.now(), by: agent }
+  updateProfiles((raw) => {
+    const holder =
+      scope === "team"
+        ? (raw.team = raw.team && typeof raw.team === "object" ? raw.team : {})
+        : ((raw.agents = raw.agents && typeof raw.agents === "object" ? raw.agents : {}),
+          (raw.agents[agent] = raw.agents[agent] && typeof raw.agents[agent] === "object" ? raw.agents[agent] : {}))
+    holder.memory = [...(Array.isArray(holder.memory) ? holder.memory : []), entry].slice(-MAX_NOTES)
+  })
+  return scope === "team" ? "Saved in the team memory." : `Saved in the memory of ${agent}.`
+}
+
+function memoryTools(ctx) {
+  return {
+    remember: {
+      description:
+        "Save a short, durable note that will be part of your briefing in future conversations: a decision, a convention, a pitfall to avoid. " +
+        'Use scope "team" when every teammate should know it. Do not save task progress or temporary state.',
+      args: {
+        note: { type: "string", description: "The fact to remember, self-contained, in one or two sentences" },
+        scope: { type: "string", enum: ["self", "team"], description: 'Who needs it: "self" (default) or "team"' },
+      },
+      execute: (args, toolCtx) => rememberNote(ctx, args, toolCtx),
+    },
+  }
+}
+
 async function pollBridge(bridge, ctx) {
   const payload = await bridgeRequest(
     bridge,
@@ -716,10 +1000,34 @@ export const StarUiKiloPlugin = async (input) => {
   } catch {}
   let tools
   try {
-    tools = teammateTools(ctx)
+    tools = { ...memoryTools(ctx), ...(teammateTools(ctx) || {}) }
   } catch {}
   return {
     ...(tools ? { tool: tools } : {}),
+    config: async (config) => {
+      try {
+        applyFolderAccess(config)
+      } catch {}
+    },
+    "chat.message": async (input) => {
+      try {
+        if (input && input.sessionID && input.agent) rememberAgent(input.sessionID, input.agent)
+      } catch {}
+    },
+    "chat.params": async (input) => {
+      try {
+        if (input && input.sessionID && input.agent) rememberAgent(input.sessionID, String(input.agent))
+      } catch {}
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      try {
+        const sid = input && input.sessionID
+        if (!sid || !output || !Array.isArray(output.system)) return
+        const agent = await agentOf(sid, ctx)
+        if (!agent || INTERNAL_AGENTS.has(agent)) return
+        output.system.push(await briefing(agent, ctx))
+      } catch {}
+    },
     event: async ({ event }) => {
       try {
         handle(event, ctx)
@@ -734,4 +1042,4 @@ export const StarUiKiloPlugin = async (input) => {
 }
 
 // Internals exposed for the extension's test-suite. Not a function export, so Kilo ignores it.
-StarUiKiloPlugin.__test = { askTeammate, readTeam, runCommand, resolveModel, transcript }
+StarUiKiloPlugin.__test = { askTeammate, readTeam, runCommand, resolveModel, transcript, briefing, applyFolderAccess, rememberNote, readProfiles }

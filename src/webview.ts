@@ -46,12 +46,19 @@ export function renderOfficeHtml(opts: HtmlOptions): string {
   <div id="loading-progress-container"><div id="loading-progress-bar"></div></div>
 </div>
 <div id="app">
-  <div id="game-container">
-    <div id="game-skeleton"><div class="hint">★</div></div>
-    <div id="status-text"></div>
-    <div id="connect-banner"><span id="connect-banner-text"></span><button id="connect-banner-btn" type="button"></button></div>
+  <div id="game-area">
+    <div id="game-container">
+      <div id="game-skeleton"><div class="hint">★</div></div>
+      <div id="status-text"></div>
+      <div id="connect-banner"><span id="connect-banner-text"></span><button id="connect-banner-btn" type="button"></button></div>
+    </div>
   </div>
   <div id="bottom-panels">
+    <nav id="panel-tabs" role="tablist">
+      <button type="button" role="tab" data-panel="memo-panel" id="tab-memo-panel"></button>
+      <button type="button" role="tab" data-panel="team-panel" id="tab-team-panel"></button>
+      <button type="button" role="tab" data-panel="control-bar" id="tab-control-bar"></button>
+    </nav>
     <section id="memo-panel" class="pixel-panel">
       <div class="memo-inner">
         <div id="log-title" class="panel-title"></div>
@@ -61,8 +68,10 @@ export function renderOfficeHtml(opts: HtmlOptions): string {
     <section id="team-panel" class="pixel-panel">
       <div id="team-title" class="panel-title"></div>
       <div class="scroll">
+        <button id="team-profile-btn" type="button"></button>
         <div id="meeting-list" style="display:none"></div>
         <div id="team-list"></div>
+        <details id="past-meetings" style="display:none"><summary id="past-title"></summary><div id="past-list"></div></details>
       </div>
     </section>
     <section id="control-bar" class="pixel-panel">
@@ -81,6 +90,10 @@ export function renderOfficeHtml(opts: HtmlOptions): string {
     <button id="chat-open" class="pixel-btn" type="button">↗</button>
     <button id="chat-close" class="pixel-btn" type="button">✕</button>
   </header>
+  <nav id="chat-tabs" role="tablist">
+    <button type="button" role="tab" data-view="chat" id="chat-tab-chat"></button>
+    <button type="button" role="tab" data-view="profile" id="chat-tab-profile"></button>
+  </nav>
   <div id="chat-members"></div>
   <div id="chat-log" class="scroll" aria-live="polite"></div>
   <footer id="chat-compose">
@@ -91,10 +104,29 @@ export function renderOfficeHtml(opts: HtmlOptions): string {
       <button id="chat-send" class="pixel-btn primary" type="button"></button>
     </div>
   </footer>
+  <div id="profile-view" class="scroll" hidden>
+    <p id="profile-role"></p>
+    <label class="profile-label" for="profile-context" id="profile-context-label"></label>
+    <textarea id="profile-context" maxlength="8000"></textarea>
+    <div class="profile-label" id="profile-folders-label"></div>
+    <p class="profile-hint" id="profile-folders-hint"></p>
+    <div id="profile-folders"></div>
+    <button id="profile-add-folders" class="pixel-btn" type="button"></button>
+    <div class="profile-label" id="profile-memory-label"></div>
+    <p class="profile-hint" id="profile-memory-hint"></p>
+    <div id="profile-memory"></div>
+    <div id="profile-actions">
+      <button id="profile-preview" class="pixel-btn" type="button"></button>
+      <span id="profile-result" aria-live="polite"></span>
+      <button id="profile-save" class="pixel-btn primary" type="button"></button>
+    </div>
+    <pre id="profile-briefing" hidden></pre>
+  </div>
 </aside>
 <script id="boot" type="application/json">${boot}</script>
 <script nonce="${nonce}" src="${media}/vendor/phaser-3.80.1.min.js"></script>
 <script nonce="${nonce}" src="${media}/i18n.js"></script>
+<script nonce="${nonce}" src="${media}/guests.js"></script>
 <script nonce="${nonce}" src="${media}/office.js"></script>
 </body>
 </html>`

@@ -89,34 +89,6 @@
 
   // ---------- game state ----------
   const IDLE_SOFA_ANCHOR = { x: 798, y: 272 }
-  // Where characters go: coordinates of their feet on the 1280x720 office.
-  const SPOTS = {
-    // quiet places for idle agents
-    idle: [
-      { x: 575, y: 470, pose: "coffee" }, // left of the coffee table
-      { x: 745, y: 470, pose: "coffee" }, // right of the coffee table
-      { x: 885, y: 335, pose: "sit" }, // next to the armchair
-      { x: 130, y: 300, pose: "read" }, // bookshelf, left room
-      { x: 610, y: 255, pose: "read" }, // bookshelf, middle room
-      { x: 1015, y: 655, pose: "rest" }, // by the plant, bottom-right room
-      { x: 505, y: 650, pose: "stand" },
-      { x: 855, y: 650, pose: "stand" },
-    ],
-    // around the lead's desk: agents working in the lead's conversation
-    meeting: [
-      { x: 300, y: 610 }, { x: 160, y: 605 }, { x: 420, y: 575 }, { x: 235, y: 675 },
-      { x: 375, y: 675 }, { x: 95, y: 660 }, { x: 440, y: 665 },
-    ],
-    // agents busy on another conversation: around the middle table
-    work: [
-      { x: 560, y: 600 }, { x: 760, y: 600 }, { x: 660, y: 645 }, { x: 490, y: 555 }, { x: 830, y: 555 },
-    ],
-    error: [
-      { x: 960, y: 345 }, { x: 1070, y: 335 }, { x: 1020, y: 385 }, { x: 910, y: 385 }, { x: 1115, y: 385 },
-    ],
-  }
-  const WALK_SPEED = { idle: 32, busy: 90 } // pixels per second
-  const PROP = { coffee: "☕", read: "📖" }
   const MAIN_ANCHORS = {
     idle: { x: IDLE_SOFA_ANCHOR.x, y: IDLE_SOFA_ANCHOR.y - 118 },
     work: { x: 217, y: 210 },
@@ -139,7 +111,7 @@
   let typewriterText = ""
   let typewriterIndex = 0
   let lastTypewriter = 0
-  const guestSprites = {} // name -> { sprite, nameText, alert, prop, n, zone, spot, target, arrived, nextWanderAt }
+  let guests = null // see guests.js
   const guestBubbles = {} // name -> container
   let seenGuests = new Set()
   let meetingMarker = null
@@ -192,22 +164,18 @@
 
     this.add.image(640, 360, "office_bg")
 
-    this.add.image(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "sofa_shadow").setOrigin(0.5).setDepth(9)
-    sofa = this.add.sprite(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "sofa_idle").setOrigin(0.5).setDepth(10)
+    // Depths follow the floor line of each object, so guests (depth = their feet) pass in front of or behind it.
+    this.add.image(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "sofa_shadow").setOrigin(0.5).setDepth(373)
+    sofa = this.add.sprite(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "sofa_idle").setOrigin(0.5).setDepth(375)
 
     const starIdleMax = Math.max(0, (this.textures.get("star_idle")?.frameTotal || 1) - 2)
     this.anims.create({ key: "star_idle", frames: this.anims.generateFrameNumbers("star_idle", { start: 0, end: starIdleMax }), frameRate: 12, repeat: -1 })
-    for (let i = 1; i <= 6; i++) {
-      const frames = this.anims.generateFrameNumbers(`guest_anim_${i}`, { start: 0, end: 7 })
-      this.anims.create({ key: `guest_anim_${i}_walk`, frames, frameRate: 8, repeat: -1 })
-      this.anims.create({ key: `guest_anim_${i}_work`, frames, frameRate: 3, repeat: -1 })
-    }
 
-    star = this.add.sprite(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "star_idle").setOrigin(0.5).setAlpha(0.95).setDepth(20)
+    star = this.add.sprite(IDLE_SOFA_ANCHOR.x, IDLE_SOFA_ANCHOR.y, "star_idle").setOrigin(0.5).setAlpha(0.95).setDepth(376)
     star.anims.play("star_idle", true)
 
     // plaque
-    const plaqueBg = this.add.rectangle(640, 684, 420, 44, 0x5d4037)
+    const plaqueBg = this.add.rectangle(640, 684, 420, 44, 0x5d4037).setDepth(2500)
     plaqueBg.setStrokeStyle(3, 0x3e2723)
     window.officePlaque = this.add
       .text(640, 684, settings.officeName || t("officeName"), {
@@ -220,41 +188,44 @@
         wordWrap: { width: 380 },
       })
       .setOrigin(0.5)
-    this.add.text(450, 684, "⭐", { fontFamily: FONT, fontSize: "20px" }).setOrigin(0.5)
-    this.add.text(830, 684, "⭐", { fontFamily: FONT, fontSize: "20px" }).setOrigin(0.5)
+      .setDepth(2501)
+    this.add.text(450, 684, "⭐", { fontFamily: FONT, fontSize: "20px" }).setOrigin(0.5).setDepth(2501)
+    this.add.text(830, 684, "⭐", { fontFamily: FONT, fontSize: "20px" }).setOrigin(0.5).setDepth(2501)
 
     // decor (click to shuffle, like the original)
     randomFrameSprite(this, 565, 178, "plants", 5)
     randomFrameSprite(this, 230, 185, "plants", 5)
-    randomFrameSprite(this, 977, 496, "plants", 5)
+    randomFrameSprite(this, 977, 496, "plants", 566)
     randomFrameSprite(this, 252, 66, "posters", 4)
-    window.catSprite = randomFrameSprite(this, 94, 557, "cats", 2000)
+    window.catSprite = randomFrameSprite(this, 94, 557, "cats", 612)
 
-    this.add.image(659, 397, "coffee_machine_shadow").setOrigin(0.5).setDepth(98)
+    this.add.image(659, 397, "coffee_machine_shadow").setOrigin(0.5).setDepth(477)
     const coffeeMax = Math.max(0, (this.textures.get("coffee_machine")?.frameTotal || 1) - 2)
     this.anims.create({ key: "coffee_machine", frames: this.anims.generateFrameNumbers("coffee_machine", { start: 0, end: coffeeMax }), frameRate: 12.5, repeat: -1 })
-    this.add.sprite(659, 397, "coffee_machine").setOrigin(0.5).setDepth(99).anims.play("coffee_machine", true)
+    this.add.sprite(659, 397, "coffee_machine").setOrigin(0.5).setDepth(478).anims.play("coffee_machine", true)
 
     const serverMax = Math.max(0, (this.textures.get("serverroom")?.frameTotal || 1) - 2)
     this.anims.create({ key: "serverroom_on", frames: this.anims.generateFrameNumbers("serverroom", { start: 0, end: serverMax }), frameRate: 6, repeat: -1 })
     serverroom = this.add.sprite(1021, 142, "serverroom", 0).setOrigin(0.5).setDepth(2)
 
-    this.add.image(218, 417, "desk_v2").setOrigin(0.5).setDepth(1001)
-    const flower = randomFrameSprite(this, 310, 390, "flowers", 1100)
+    this.add.image(218, 417, "desk_v2").setOrigin(0.5).setDepth(521)
+    const flower = randomFrameSprite(this, 310, 390, "flowers", 522)
     flower.setScale(0.8)
 
     this.anims.create({ key: "star_working", frames: this.anims.generateFrameNumbers("star_working", { start: 0, end: 37 }), frameRate: 12, repeat: -1 })
     this.anims.create({ key: "error_bug", frames: this.anims.generateFrameNumbers("error_bug", { start: 0, end: 71 }), frameRate: 12, repeat: -1 })
 
-    errorBug = this.add.sprite(1007, 221, "error_bug", 0).setOrigin(0.5).setDepth(50).setScale(0.9).setVisible(false)
-    starWorking = this.add.sprite(217, 343, "star_working", 0).setOrigin(0.5).setScale(0.9).setDepth(900).setVisible(false)
+    errorBug = this.add.sprite(1007, 221, "error_bug", 0).setOrigin(0.5).setDepth(304).setScale(0.9).setVisible(false)
+    starWorking = this.add.sprite(217, 343, "star_working", 0).setOrigin(0.5).setScale(0.9).setDepth(520).setVisible(false)
 
     const syncTotal = Number(this.textures.get("sync_anim")?.frameTotal || 0)
     syncAnimPlayable = syncTotal >= 3
     if (syncAnimPlayable) {
       this.anims.create({ key: "sync_anim", frames: this.anims.generateFrameNumbers("sync_anim", { start: 1, end: Math.max(1, syncTotal - 2) }), frameRate: 12, repeat: -1 })
     }
-    syncAnimSprite = this.add.sprite(1157, 592, "sync_anim", 0).setOrigin(0.5).setDepth(40)
+    syncAnimSprite = this.add.sprite(1157, 592, "sync_anim", 0).setOrigin(0.5).setDepth(665)
+
+    guests = window.StarGuests.createGuests(this, { font: FONT, onClick: (name) => openChat({ kind: "agent", name }) })
 
     // The main character (the agent of the active conversation) is clickable wherever it is.
     for (const s of [star, starWorking, errorBug, syncAnimSprite]) {
@@ -279,7 +250,7 @@
       .setVisible(false)
 
     meetingMarker = this.add
-      .text(395, 322, "", { fontFamily: FONT, fontSize: "14px", fill: "#1a1b2f", backgroundColor: "#ffd700", padding: { x: 6, y: 3 } })
+      .text(217, 236, "", { fontFamily: FONT, fontSize: "14px", fill: "#1a1b2f", backgroundColor: "#ffd700", padding: { x: 6, y: 3 } })
       .setOrigin(0.5)
       .setDepth(2650)
       .setVisible(false)
@@ -327,147 +298,9 @@
     mainTag.setPosition(anchor.x, anchor.y)
   }
 
-  // Which part of the office a character belongs to right now.
-  function zoneOf(char) {
-    if (char.state === "error") return "error"
-    const working = char.busy || char.waiting || char.state !== "idle"
-    if (!working) return "idle"
-    const main = snapshot && snapshot.main
-    return main && char.meetingID && char.meetingID === main.meetingID ? "meeting" : "work"
-  }
-
-  function freeSpot(zone, taken, prefer) {
-    const spots = SPOTS[zone]
-    if (prefer !== undefined && !taken.has(`${zone}:${prefer}`)) return prefer
-    const free = spots.map((_, i) => i).filter((i) => !taken.has(`${zone}:${i}`))
-    if (!free.length) return Math.floor(Math.random() * spots.length)
-    return zone === "idle" ? free[Math.floor(Math.random() * free.length)] : free[0]
-  }
-
-  function goTo(g, zone, spot) {
-    const p = SPOTS[zone][spot]
-    g.zone = zone
-    g.spot = spot
-    g.target = { x: p.x, y: p.y }
-    g.arrived = false
-  }
-
-  function renderGuests(guests) {
-    if (!scene) return
-    const seen = new Set()
-    const taken = new Set()
-    // Characters that keep their zone keep their spot, so nobody shuffles around needlessly.
-    for (const char of guests) {
-      const g = guestSprites[char.name]
-      if (g && g.zone === zoneOf(char)) taken.add(`${g.zone}:${g.spot}`)
-    }
-    for (const char of guests) {
-      const name = char.name
-      seen.add(name)
-      const zone = zoneOf(char)
-      let g = guestSprites[name]
-      if (!g) {
-        const spot = freeSpot(zone, taken)
-        taken.add(`${zone}:${spot}`)
-        const p = SPOTS[zone][spot]
-        const n = hashIndex(name, 6)
-        const sprite = scene.add.sprite(p.x, p.y, `guest_anim_${n}`, 0).setOrigin(0.5, 1).setScale(4)
-        sprite.setInteractive({ useHandCursor: true })
-        sprite.on("pointerdown", () => openChat({ kind: "agent", name }))
-        const nameText = scene.add
-          .text(p.x, p.y - 120, "", { fontFamily: FONT, fontSize: "15px", fill: "#ffffff", stroke: "#000", strokeThickness: 4 })
-          .setOrigin(0.5)
-          .setDepth(2640)
-        nameText.setInteractive({ useHandCursor: true })
-        nameText.on("pointerdown", () => openChat({ kind: "agent", name }))
-        const alert = scene.add
-          .text(p.x, p.y - 145, "!", { fontFamily: FONT, fontSize: "18px", fill: "#1a1b2f", backgroundColor: "#ffd700", padding: { x: 5, y: 1 } })
-          .setOrigin(0.5)
-          .setDepth(2660)
-          .setVisible(false)
-        const prop = scene.add.text(p.x + 26, p.y - 70, "", { fontSize: "18px" }).setOrigin(0.5).setDepth(2645)
-        g = guestSprites[name] = { sprite, nameText, alert, prop, n, zone, spot, target: { x: p.x, y: p.y }, arrived: false, nextWanderAt: 0 }
-      } else if (g.zone !== zone) {
-        const spot = freeSpot(zone, taken)
-        taken.add(`${zone}:${spot}`)
-        goTo(g, zone, spot)
-      }
-      const count = char.activeSessions > 1 ? ` ×${char.activeSessions}` : ""
-      g.nameText.setText(label(char) + count)
-      g.nameText.setColor(char.color && /^#[0-9a-f]{6}$/i.test(char.color) ? char.color : "#ffffff")
-      g.alert.setVisible(!!char.waiting)
-    }
-    for (const name of Object.keys(guestSprites)) {
-      if (seen.has(name)) continue
-      const g = guestSprites[name]
-      g.sprite.destroy()
-      g.nameText.destroy()
-      g.alert.destroy()
-      g.prop.destroy()
-      delete guestSprites[name]
-      if (guestBubbles[name]) {
-        guestBubbles[name].destroy()
-        delete guestBubbles[name]
-      }
-    }
-  }
-
-  // Calm movement: walk slowly to a spot, then stay still; idle agents change spot now and then.
-  function updateGuests(time, delta) {
-    const taken = new Set(Object.values(guestSprites).map((g) => `${g.zone}:${g.spot}`))
-    for (const g of Object.values(guestSprites)) {
-      const dx = g.target.x - g.sprite.x
-      const dy = g.target.y - g.sprite.y
-      const dist = Math.hypot(dx, dy)
-      if (dist > 2) {
-        const step = Math.min(dist, ((g.zone === "idle" ? WALK_SPEED.idle : WALK_SPEED.busy) * delta) / 1000)
-        g.sprite.x += (dx / dist) * step
-        g.sprite.y += (dy / dist) * step
-        if (Math.abs(dx) > 1) g.sprite.setFlipX(dx < 0)
-        const walk = `guest_anim_${g.n}_walk`
-        if (g.sprite.anims.currentAnim?.key !== walk || !g.sprite.anims.isPlaying) g.sprite.anims.play(walk, true)
-        g.prop.setText("")
-        g.arrived = false
-      } else if (!g.arrived) {
-        g.arrived = true
-        g.sprite.setPosition(g.target.x, g.target.y)
-        if (g.zone === "idle") {
-          g.sprite.anims.stop()
-          g.sprite.setFrame(0)
-          g.sprite.setFlipX(g.sprite.x > 640)
-          g.prop.setText(PROP[SPOTS.idle[g.spot].pose] || "")
-          g.nextWanderAt = time + 25000 + Math.random() * 35000
-        } else {
-          g.sprite.anims.play(`guest_anim_${g.n}_work`, true)
-          g.sprite.setFlipX(g.zone === "meeting" ? g.sprite.x > 217 : g.sprite.x > 660)
-        }
-      } else if (g.zone === "idle" && time > g.nextWanderAt) {
-        g.nextWanderAt = time + 25000 + Math.random() * 35000
-        if (Math.random() < 0.5) {
-          const spot = freeSpot("idle", taken)
-          if (spot !== g.spot) {
-            taken.delete(`idle:${g.spot}`)
-            taken.add(`idle:${spot}`)
-            goTo(g, "idle", spot)
-          }
-        }
-      }
-      const x = g.sprite.x
-      const y = g.sprite.y
-      g.sprite.setDepth(2100 + y / 10)
-      g.nameText.setPosition(x, y - 120)
-      g.alert.setPosition(x, y - 145)
-      g.prop.setPosition(x + (g.sprite.flipX ? -26 : 26), y - 66)
-    }
-  }
-
   // Frames stop while the office is hidden: on return, agents are already where they were heading.
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) return
-    for (const g of Object.values(guestSprites)) {
-      if (g.arrived) continue
-      g.sprite.setPosition(g.target.x, g.target.y)
-    }
+    if (!document.hidden && guests) guests.snapToTargets()
   })
 
   function makeBubble(x, y, text, opts) {
@@ -534,12 +367,12 @@
   function maybeShowGuestBubble(time) {
     if (!snapshot) return
     const main = snapshot.main
-    const inMeeting = snapshot.guests.filter((c) => guestSprites[c.name] && main && c.meetingID && c.meetingID === main.meetingID && c.busy)
+    const inMeeting = snapshot.guests.filter((c) => guests && guests.has(c.name) && main && c.meetingID && c.meetingID === main.meetingID && c.busy)
     // A meeting talks more than people working alone.
     const interval = inMeeting.length ? 4500 : 9000
     if (time - lastGuestBubbleAt < interval) return
     lastGuestBubbleAt = time
-    const candidates = inMeeting.length ? inMeeting : snapshot.guests.filter((c) => guestSprites[c.name] && (c.busy || c.waiting))
+    const candidates = inMeeting.length ? inMeeting : snapshot.guests.filter((c) => guests && guests.has(c.name) && (c.busy || c.waiting))
     if (!candidates.length) return
     const char = pick(candidates)
     const text = char.waiting ? pick(L.bubbles.waiting) : detailText(char)
@@ -547,10 +380,10 @@
   }
 
   function showGuestBubble(name, text) {
-    const g = guestSprites[name]
-    if (!g || !text) return
+    const head = guests && guests.headOf(name)
+    if (!head || !text) return
     if (guestBubbles[name]) guestBubbles[name].destroy()
-    const b = makeBubble(clampX(g.sprite.x), g.sprite.y - 150, text)
+    const b = makeBubble(clampX(head.x), head.y - 44, text)
     guestBubbles[name] = b
     setTimeout(() => {
       if (guestBubbles[name] === b) {
@@ -561,7 +394,7 @@
   }
 
   function update(time, delta) {
-    updateGuests(time, delta)
+    if (guests) guests.update(time, delta)
     if (time - lastBubble > 8000) {
       showMainBubble()
       lastBubble = time
@@ -581,11 +414,11 @@
 
     // keep guest bubbles glued to walking guests
     for (const name of Object.keys(guestBubbles)) {
-      const g = guestSprites[name]
+      const head = guests && guests.headOf(name)
       const b = guestBubbles[name]
-      if (!g || !b || !b.list) continue
-      const x = clampX(g.sprite.x)
-      const y = g.sprite.y - 150
+      if (!head || !b || !b.list) continue
+      const x = clampX(head.x)
+      const y = head.y - 44
       b.list[0].setPosition(x, y)
       b.list[1].setPosition(x, y)
     }
@@ -616,7 +449,7 @@
       typewriterIndex = 0
     }
 
-    renderGuests(snap.guests)
+    if (guests) guests.render(snap.guests, snap.main)
 
     // Star welcomes agents that just started working.
     const busyNow = new Set(snap.guests.filter((c) => c.busy).map((c) => c.name))
@@ -665,6 +498,10 @@
     document.getElementById("log-title").textContent = t("logTitle")
     document.getElementById("team-title").textContent = t("teamTitle")
     document.getElementById("link-title").textContent = t("linkTitle")
+    document.getElementById("tab-memo-panel").textContent = t("logTitle")
+    document.getElementById("tab-team-panel").textContent = t("teamTitle")
+    document.getElementById("tab-control-bar").textContent = t("linkTitle")
+    document.getElementById("team-profile-btn").textContent = t("profile.teamButton")
     if (!snapshot) return
     const entries = snapshot.log.slice(-40).reverse()
     const chars = [snapshot.main, ...snapshot.guests].filter(Boolean)
@@ -673,8 +510,10 @@
     const anyBusy = chars.some((ch) => ch.busy)
     const linkView = [c.demo, c.live, c.pluginInstalled, c.kiloDetected, c.kiloLegacyVersion, c.lastEventAt && timeOf(c.lastEventAt), anyBusy]
     const meetings = snapshot.meetings || []
+    const past = snapshot.pastMeetings || []
     if (changed("log", entries)) renderLog(entries)
-    if (changed("meetings", meetings.map((m) => [m.id, m.title, m.members, m.busy]))) renderMeetings(meetings)
+    if (changed("meetings", meetings.map((m) => [m.id, m.title, m.members]))) renderMeetings(meetings)
+    if (changed("past", [settings.language, past.map((m) => [m.id, m.title, m.members, m.updatedAt])])) renderPastMeetings(past)
     if (changed("team", teamView)) renderTeam(chars)
     if (changed("link", linkView)) renderLink(c)
   }
@@ -742,20 +581,33 @@
     }
   }
 
+  function meetingItem(m, badge) {
+    const item = el("button", `meeting-item${m.busy ? " busy" : ""}`)
+    item.type = "button"
+    item.addEventListener("click", () => openChat({ kind: "meeting", id: m.id }))
+    item.append(el("span", "meeting-icon", "🗨"))
+    const body = el("div", "agent-body")
+    body.append(el("div", "agent-name", m.title || t("chat.meeting")), el("div", "agent-sub", m.members.join(" · ")))
+    item.append(body, badge)
+    return item
+  }
+
+  // Meetings in progress, above the team.
   function renderMeetings(meetings) {
     const box = document.getElementById("meeting-list")
     box.replaceChildren()
     box.style.display = meetings.length ? "" : "none"
-    for (const m of meetings.slice(0, 4)) {
-      const item = el("button", `meeting-item${m.busy ? " busy" : ""}`)
-      item.type = "button"
-      item.addEventListener("click", () => openChat({ kind: "meeting", id: m.id }))
-      item.append(el("span", "meeting-icon", "🗨"))
-      const body = el("div", "agent-body")
-      body.append(el("div", "agent-name", m.title || t("chat.meeting")), el("div", "agent-sub", m.members.join(" · ")))
-      item.append(body, el("span", `agent-state ${m.busy ? "writing" : "idle"}`, m.busy ? t("chat.live") : t("states.idle")))
-      box.append(item)
-    }
+    for (const m of meetings.slice(0, 4)) box.append(meetingItem(m, el("span", "agent-state writing", t("chat.live"))))
+  }
+
+  // Finished meetings, folded under the team; they can still be opened and read.
+  function renderPastMeetings(past) {
+    const details = document.getElementById("past-meetings")
+    details.style.display = past.length ? "" : "none"
+    document.getElementById("past-title").textContent = t("chat.pastMeetings", { count: past.length })
+    const list = document.getElementById("past-list")
+    list.replaceChildren()
+    for (const m of past) list.append(meetingItem(m, el("span", "agent-state idle", timeOf(m.updatedAt))))
   }
 
   function renderLink(c) {
@@ -785,7 +637,8 @@
     }
     if (c.pluginInstalled) add("btnDisconnect", "disconnect", "danger")
     else add("btnConnect", "connect", "primary")
-    add(c.demo ? "btnDemoOff" : "btnDemoOn", "toggleDemo")
+    // The demo is only offered while Kilo Code is not connected (and stays stoppable while it runs).
+    if (c.demo || !c.live) add(c.demo ? "btnDemoOff" : "btnDemoOn", "toggleDemo")
     if (snapshot && [snapshot.main, ...snapshot.guests].some((ch) => ch && ch.busy)) {
       const stop = el("button", "pixel-btn danger", t("chat.stopAll"))
       stop.type = "button"
@@ -802,21 +655,22 @@
   }
 
   // ---------- chat panel: one agent's conversation, or a whole meeting ----------
-  const chat = { target: null, request: null, pending: null, timer: null, key: "", sessionID: null }
+  const chat = { target: null, view: "chat", request: null, pending: null, timer: null, key: "", sessionID: null }
 
   function findChar(name) {
     if (!snapshot) return null
     return [snapshot.main, ...snapshot.guests].find((c) => c && c.name === name) || null
   }
   function findMeeting(id) {
-    return snapshot ? (snapshot.meetings || []).find((m) => m.id === id) || null : null
+    if (!snapshot) return null
+    return [...(snapshot.meetings || []), ...(snapshot.pastMeetings || [])].find((m) => m.id === id) || null
   }
   function colorOf(name) {
     const c = findChar(name)
     return c && c.color && /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : "#cbd5e1"
   }
 
-  function openChat(target) {
+  function openChat(target, view) {
     chat.target = target
     chat.key = ""
     chat.sessionID = null
@@ -827,20 +681,36 @@
     const isMeeting = target.kind === "meeting"
     const meeting = isMeeting ? findMeeting(target.id) : null
     document.getElementById("chat-option").checked = isMeeting ? !!(meeting && meeting.busy) : false
-    refreshChatHeader()
     document.getElementById("chat-panel").classList.add("open")
-    requestTranscript()
-    setTimeout(() => document.getElementById("chat-text").focus(), 30)
+    // The team only has a profile, a meeting only a conversation.
+    setChatView(target.kind === "team" ? "profile" : target.kind === "meeting" ? "chat" : view || "chat")
+  }
+
+  function setChatView(view) {
+    chat.view = view
+    const isChat = view === "chat"
+    for (const id of ["chat-members", "chat-log", "chat-compose"]) document.getElementById(id).hidden = !isChat
+    document.getElementById("profile-view").hidden = isChat
+    for (const tab of document.querySelectorAll("#chat-tabs button")) tab.setAttribute("aria-selected", String(tab.dataset.view === view))
+    refreshChatHeader()
+    clearTimeout(chat.timer)
+    if (isChat) {
+      requestTranscript()
+      setTimeout(() => document.getElementById("chat-text").focus(), 30)
+    } else {
+      loadProfile()
+    }
   }
 
   function closeChat() {
     document.getElementById("chat-panel").classList.remove("open")
     chat.target = null
     clearTimeout(chat.timer)
+    profile.target = null
   }
 
   function chatBusy() {
-    if (!chat.target) return false
+    if (!chat.target || chat.target.kind === "team") return false
     if (chat.target.kind === "meeting") return !!(findMeeting(chat.target.id) || {}).busy
     return !!(findChar(chat.target.name) || {}).busy
   }
@@ -857,10 +727,19 @@
     const optionLabel = document.getElementById("chat-option-label")
     const text = document.getElementById("chat-text")
     members.replaceChildren()
-    if (target.kind === "meeting") {
+    document.getElementById("chat-tabs").hidden = target.kind !== "agent"
+    document.getElementById("chat-tab-chat").textContent = t("profile.tabChat")
+    document.getElementById("chat-tab-profile").textContent = t("profile.tabProfile")
+    document.getElementById("chat-open").style.display = target.kind === "team" ? "none" : ""
+    if (target.kind === "team") {
+      title.textContent = t("profile.teamTitle")
+      sub.textContent = t("profile.teamSub")
+      avatar.textContent = "✦"
+      avatar.style.backgroundImage = ""
+    } else if (target.kind === "meeting") {
       const m = findMeeting(target.id)
       title.textContent = t("chat.meetingTitle", { title: (m && m.title) || t("chat.meeting") })
-      sub.textContent = m ? (m.busy ? t("chat.live") : t("states.idle")) : ""
+      sub.textContent = m ? (m.busy ? t("chat.live") : t("chat.ended", { time: timeOf(m.updatedAt) })) : ""
       avatar.textContent = "🗨"
       avatar.style.backgroundImage = ""
       for (const name of (m && m.members) || []) {
@@ -909,7 +788,7 @@
 
   function requestTranscript() {
     clearTimeout(chat.timer)
-    if (!chat.target) return
+    if (!chat.target || chat.target.kind === "team" || chat.view !== "chat") return
     chat.request = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     vscode.postMessage({ type: "transcript", requestId: chat.request, target: chat.target })
     // Fallback in case no answer comes back.
@@ -917,11 +796,11 @@
   }
 
   function sameTarget(a, b) {
-    return a && b && a.kind === b.kind && (a.kind === "meeting" ? a.id === b.id : a.name === b.name)
+    return a && b && a.kind === b.kind && (a.kind === "meeting" ? a.id === b.id : a.kind === "team" || a.name === b.name)
   }
 
   function onTranscript(msg) {
-    if (!chat.target || msg.requestId !== chat.request || !sameTarget(msg.target, chat.target)) return
+    if (!chat.target || chat.view !== "chat" || msg.requestId !== chat.request || !sameTarget(msg.target, chat.target)) return
     clearTimeout(chat.timer)
     chat.sessionID = msg.sessionID || null
     renderTranscript(msg.messages || [], msg.error)
@@ -1009,7 +888,193 @@
     refreshChatHeader()
   }
 
+  // ---------- profiles: context, linked folders and memory of an agent or of the whole team ----------
+  const profile = { target: null, data: null, request: null, dirty: false, saving: false }
+
+  function newRequestId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+
+  function loadProfile() {
+    const target = chat.target
+    if (!target || (target.kind !== "agent" && target.kind !== "team")) return
+    profile.target = target.kind === "team" ? { kind: "team" } : { kind: "agent", name: target.name }
+    profile.data = null
+    profile.dirty = false
+    profile.request = newRequestId()
+    document.getElementById("profile-briefing").hidden = true
+    setProfileResult("", "")
+    renderProfile()
+    vscode.postMessage({ type: "profileLoad", requestId: profile.request, target: profile.target })
+  }
+
+  function onProfile(msg) {
+    if (!profile.target || msg.requestId !== profile.request || !sameTarget(msg.target, profile.target)) return
+    if (msg.error) return setProfileResult(msg.error, "err")
+    const keepContext = profile.dirty && profile.data ? document.getElementById("profile-context").value : null
+    profile.data = msg.profile || { context: "", folders: [], memory: [] }
+    if (keepContext !== null) profile.data.context = keepContext
+    renderProfile()
+  }
+
+  function setProfileResult(text, cls) {
+    const result = document.getElementById("profile-result")
+    result.textContent = text
+    result.className = cls || ""
+  }
+
+  function markDirty() {
+    profile.dirty = true
+    setProfileResult(t("profile.unsaved"), "")
+  }
+
+  function renderProfile() {
+    const target = profile.target
+    if (!target) return
+    const isTeam = target.kind === "team"
+    const char = isTeam ? null : findChar(target.name)
+    const name = isTeam ? "" : char ? label(char) : target.name
+    document.getElementById("profile-role").textContent = isTeam ? t("profile.teamRole") : t("profile.agentRole", { agent: name })
+    document.getElementById("profile-context-label").textContent = t("profile.context")
+    const context = document.getElementById("profile-context")
+    context.placeholder = isTeam ? t("profile.teamContextPlaceholder") : t("profile.contextPlaceholder", { agent: name })
+    context.disabled = !profile.data
+    if (profile.data && !profile.dirty) context.value = profile.data.context || ""
+    if (!profile.data) context.value = ""
+    document.getElementById("profile-folders-label").textContent = t("profile.folders")
+    document.getElementById("profile-folders-hint").textContent = t("profile.foldersHint")
+    document.getElementById("profile-memory-label").textContent = t("profile.memory")
+    document.getElementById("profile-memory-hint").textContent = t("profile.memoryHint")
+    document.getElementById("profile-add-folders").textContent = t("profile.addFolders")
+    document.getElementById("profile-add-folders").disabled = !profile.data
+    const save = document.getElementById("profile-save")
+    save.textContent = profile.saving ? t("profile.saving") : t("profile.save")
+    save.disabled = !profile.data || profile.saving
+    const preview = document.getElementById("profile-preview")
+    preview.style.display = isTeam ? "none" : ""
+    preview.textContent = document.getElementById("profile-briefing").hidden ? t("profile.preview") : t("profile.hidePreview")
+
+    const folders = document.getElementById("profile-folders")
+    folders.replaceChildren()
+    const list = (profile.data && profile.data.folders) || []
+    if (!list.length) folders.append(el("div", "profile-empty", t("profile.noFolders")))
+    list.forEach((f, i) => {
+      const row = el("div", "profile-row")
+      // Long paths are cut on the left, so the folder name stays visible.
+      const text = el("span", "profile-path")
+      text.append(el("bdi", "", f.path))
+      text.title = f.path
+      const remove = el("button", "profile-remove", "✕")
+      remove.type = "button"
+      remove.title = t("profile.remove")
+      remove.addEventListener("click", () => {
+        profile.data.folders.splice(i, 1)
+        markDirty()
+        renderProfile()
+      })
+      row.append(text, remove)
+      folders.append(row)
+    })
+
+    const memory = document.getElementById("profile-memory")
+    memory.replaceChildren()
+    const notes = (profile.data && profile.data.memory) || []
+    if (!notes.length) memory.append(el("div", "profile-empty", t("profile.noMemory")))
+    for (const n of notes.slice().reverse()) {
+      const row = el("div", "profile-row note")
+      const body = el("div", "profile-note")
+      body.append(el("div", "", n.text))
+      const meta = [n.by, n.at ? new Date(n.at).toLocaleString() : ""].filter(Boolean).join(" · ")
+      if (meta) body.append(el("div", "profile-note-meta", meta))
+      const remove = el("button", "profile-remove", "✕")
+      remove.type = "button"
+      remove.title = t("profile.remove")
+      remove.addEventListener("click", () => {
+        profile.request = newRequestId()
+        vscode.postMessage({ type: "profileForget", requestId: profile.request, target: profile.target, id: n.id })
+      })
+      row.append(body, remove)
+      memory.append(row)
+    }
+  }
+
+  function saveProfile() {
+    if (!profile.target || !profile.data || profile.saving) return
+    profile.saving = true
+    profile.data.context = document.getElementById("profile-context").value
+    profile.saveRequest = newRequestId()
+    vscode.postMessage({
+      type: "profileSave",
+      requestId: profile.saveRequest,
+      target: profile.target,
+      context: profile.data.context,
+      folders: profile.data.folders,
+    })
+    renderProfile()
+  }
+
+  function onProfileSaved(msg) {
+    if (msg.requestId !== profile.saveRequest) return
+    profile.saving = false
+    if (msg.ok) {
+      profile.dirty = false
+      setProfileResult(msg.reloadNeeded ? t("profile.savedReload") : t("profile.saved"), "ok")
+    } else {
+      setProfileResult(msg.error || "Error", "err")
+    }
+    renderProfile()
+  }
+
+  function onFolders(msg) {
+    if (msg.requestId !== profile.folderRequest || !profile.data) return
+    let added = false
+    for (const p of msg.paths || []) {
+      if (profile.data.folders.some((f) => f.path === p)) continue
+      profile.data.folders.push({ path: p })
+      added = true
+    }
+    if (added) markDirty()
+    renderProfile()
+  }
+
+  function togglePreview() {
+    const pre = document.getElementById("profile-briefing")
+    if (!pre.hidden) {
+      pre.hidden = true
+      return renderProfile()
+    }
+    if (!profile.target || profile.target.kind !== "agent") return
+    pre.hidden = false
+    pre.textContent = t("profile.previewLoading")
+    profile.briefingRequest = newRequestId()
+    vscode.postMessage({ type: "briefing", requestId: profile.briefingRequest, agent: profile.target.name })
+    renderProfile()
+  }
+
+  function onBriefing(msg) {
+    if (msg.requestId !== profile.briefingRequest) return
+    document.getElementById("profile-briefing").textContent = msg.error || msg.text || ""
+  }
+
   function bindChat() {
+    for (const tab of document.querySelectorAll("#chat-tabs button")) {
+      tab.addEventListener("click", () => chat.target && chat.target.kind === "agent" && setChatView(tab.dataset.view))
+    }
+    document.getElementById("profile-context").addEventListener("input", markDirty)
+    document.getElementById("profile-save").addEventListener("click", saveProfile)
+    document.getElementById("profile-preview").addEventListener("click", togglePreview)
+    document.getElementById("profile-add-folders").addEventListener("click", () => {
+      profile.folderRequest = newRequestId()
+      vscode.postMessage({ type: "pickFolders", requestId: profile.folderRequest })
+    })
+    document.getElementById("profile-context").addEventListener("keydown", (e) => {
+      if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        saveProfile()
+      }
+    })
+    const teamButton = document.getElementById("team-profile-btn")
+    teamButton.addEventListener("click", () => openChat({ kind: "team" }))
     document.getElementById("chat-send").addEventListener("click", sendChat)
     document.getElementById("chat-close").addEventListener("click", closeChat)
     document.getElementById("chat-stop").addEventListener("click", () => {
@@ -1030,7 +1095,8 @@
       }
     })
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeChat()
+      // Unsaved profile changes are not thrown away by Escape.
+      if (e.key === "Escape" && !(chat.view === "profile" && profile.dirty)) closeChat()
     })
     document.getElementById("connect-banner-btn").addEventListener("click", () => vscode.postMessage({ type: "command", command: "connect" }))
   }
@@ -1054,7 +1120,7 @@
       game.destroy(true)
       game = null
       scene = null
-      Object.keys(guestSprites).forEach((k) => delete guestSprites[k])
+      guests = null
       startGame()
     }
     renderPanels()
@@ -1074,6 +1140,11 @@
     })
   }
 
+  // Resize the canvas as soon as the view changes size.
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => game && game.scale && game.scale.refresh()).observe(document.getElementById("game-container"))
+  }
+
   window.addEventListener("message", (event) => {
     const msg = event.data
     if (!msg || typeof msg !== "object") return
@@ -1088,13 +1159,43 @@
       onPromptResult(msg)
     } else if (msg.type === "transcript") {
       onTranscript(msg)
+    } else if (msg.type === "profile") {
+      onProfile(msg)
+    } else if (msg.type === "profileSaved") {
+      onProfileSaved(msg)
+    } else if (msg.type === "folders") {
+      onFolders(msg)
+    } else if (msg.type === "briefing") {
+      onBriefing(msg)
     }
   })
+
+  // Small views show one panel at a time (see office.css); the choice is kept across reloads.
+  function bindPanelTabs() {
+    const tabs = [...document.querySelectorAll("#panel-tabs button")]
+    const show = (id) => {
+      for (const tab of tabs) {
+        const on = tab.dataset.panel === id
+        tab.setAttribute("aria-selected", String(on))
+        document.getElementById(tab.dataset.panel).classList.toggle("active", on)
+      }
+      try {
+        vscode.setState({ ...(vscode.getState() || {}), panel: id })
+      } catch {}
+    }
+    for (const tab of tabs) tab.addEventListener("click", () => show(tab.dataset.panel))
+    let saved = null
+    try {
+      saved = (vscode.getState() || {}).panel
+    } catch {}
+    show(tabs.some((tab) => tab.dataset.panel === saved) ? saved : "team-panel")
+  }
 
   async function boot() {
     document.getElementById("loading-text").textContent = t("loading")
     document.documentElement.style.setProperty("--memo-bg", `url("${asset("memo-bg.webp")}")`)
     bindChat()
+    bindPanelTabs()
     renderPanels()
     try {
       await Promise.race([document.fonts.load("16px ArkPixelLatin"), new Promise((r) => setTimeout(r, 2500))])

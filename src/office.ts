@@ -77,10 +77,19 @@ export const DEFAULT_OPTIONS: OfficeOptions = {
 
 // Internal agents Kilo uses for housekeeping; never shown as team members.
 const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
+const MAX_PAST_MEETINGS = 20
+
+export interface MeetingSession {
+  sessionID: string
+  dir?: string
+  speaker: string
+}
 const SUBAGENT_SUFFIX = /\s*\(@([\w-]+) subagent\)\s*$/
 
 export class OfficeModel {
   private readonly sessions = new Map<string, SessionRecord>()
+  /** Finished meetings whose sessions were forgotten, kept so they can still be read. */
+  private readonly archive = new Map<string, { view: MeetingView; sessions: MeetingSession[] }>()
   private readonly rejected = new Set<string>()
   private readonly roster = new Map<string, RosterAgent>()
   private readonly instances = new Map<string, PluginInstance>()
@@ -234,12 +243,14 @@ export class OfficeModel {
   /** Forgets sessions that are long gone. Returns true if anything was removed. */
   prune(now = Date.now()): boolean {
     let changed = false
-    for (const [id, rec] of this.sessions) {
-      if (id === this.mainSession || this.isBusy(rec) || rec.asks.size) continue
-      if (now - rec.updatedAt > this.opts.forgetMs) {
-        this.sessions.delete(id)
-        changed = true
-      }
+    const doomed = [...this.sessions.values()].filter(
+      (rec) => rec.id !== this.mainSession && !this.isBusy(rec) && !rec.asks.size && now - rec.updatedAt > this.opts.forgetMs,
+    )
+    // Finished meetings stay readable after their sessions are forgotten.
+    if (doomed.length) this.archiveMeetings(new Set(doomed.map((rec) => this.rootOf(rec) ?? rec.id)))
+    for (const rec of doomed) {
+      this.sessions.delete(rec.id)
+      changed = true
     }
     for (const [key, inst] of this.instances) {
       if (now - inst.lastSeen > this.opts.instanceTtlMs * 4) {
@@ -261,14 +272,15 @@ export class OfficeModel {
   }
 
   /** Sessions of a meeting (root first), with the character who works in each. */
-  meetingSessions(rootID: string): { sessionID: string; dir?: string; speaker: string }[] {
+  meetingSessions(rootID: string): MeetingSession[] {
     const fallback = this.defaultAgent()
-    const out: { sessionID: string; dir?: string; speaker: string }[] = []
+    const out: MeetingSession[] = []
     for (const rec of this.sessions.values()) {
       if (rec.id === rootID || this.rootOf(rec) === rootID) {
         out.push({ sessionID: rec.id, dir: rec.dir, speaker: rec.teammate ?? rec.agent ?? fallback })
       }
     }
+    if (!out.length) return this.archive.get(rootID)?.sessions ?? []
     return out.sort((a, b) => Number(b.sessionID === rootID) - Number(a.sessionID === rootID))
   }
 
@@ -349,10 +361,14 @@ export class OfficeModel {
       )
       .slice(0, this.opts.maxGuests)
 
+    const meetings = this.meetings()
+    const past = new Map(meetings.filter((m) => !m.busy).map((m) => [m.id, m]))
+    for (const [id, archived] of this.archive) if (!past.has(id) && !meetings.some((m) => m.id === id)) past.set(id, archived.view)
     return {
       main,
       guests,
-      meetings: this.meetings(now),
+      meetings: meetings.filter((m) => m.busy),
+      pastMeetings: [...past.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_PAST_MEETINGS),
       log: this.log.slice(-this.opts.maxLog),
       connection: {
         ...connection,
@@ -420,7 +436,8 @@ export class OfficeModel {
     return cur && cur !== rec ? cur.id : undefined
   }
 
-  private meetings(now: number): MeetingView[] {
+  /** Every conversation tree of the known sessions: a root and the sub-agents it started. */
+  private meetings(): MeetingView[] {
     const fallback = this.defaultAgent()
     const groups = new Map<string, SessionRecord[]>()
     for (const rec of this.sessions.values()) {
@@ -433,9 +450,8 @@ export class OfficeModel {
     for (const [rootID, children] of groups) {
       const root = this.sessions.get(rootID)
       const all = root ? [root, ...children] : children
-      const busy = all.some((r) => this.isBusy(r))
+      const busy = all.some((r) => this.isBusy(r) || r.asks.size > 0)
       const updatedAt = Math.max(...all.map((r) => r.updatedAt))
-      if (!busy && now - updatedAt > this.opts.lingerMs * 6) continue
       const members: string[] = []
       for (const r of all) {
         const name = r.teammate ?? r.agent ?? fallback
@@ -444,6 +460,15 @@ export class OfficeModel {
       out.push({ id: rootID, title: root?.title ?? children[0]?.title, members, busy, updatedAt })
     }
     return out.sort((a, b) => Number(b.busy) - Number(a.busy) || b.updatedAt - a.updatedAt)
+  }
+
+  private archiveMeetings(roots: Set<string>): void {
+    for (const view of this.meetings()) {
+      if (view.busy || !roots.has(view.id)) continue
+      this.archive.set(view.id, { view, sessions: this.meetingSessions(view.id) })
+    }
+    const extra = [...this.archive.values()].sort((a, b) => b.view.updatedAt - a.view.updatedAt).slice(MAX_PAST_MEETINGS)
+    for (const old of extra) this.archive.delete(old.view.id)
   }
 
   private defaultAgent(): string {

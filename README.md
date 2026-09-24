@@ -4,20 +4,22 @@
 
 ![The Star Office running inside VS Code, with the Kilo agents at work](images/screenshot-office.png)
 
-Kilo Code already runs several agents at once: primary agents (Code, Plan, Debug, Orchestrator…), sub-agents it delegates to (Explore, General…), your own custom agents, and parallel sessions in the Agent Manager. But all of that happens in text. Star UI turns it into a little office, forked from [Star-Office-UI](https://github.com/ringhyacinth/Star-Office-UI): every Kilo agent is a character. Agents working together gather around the lead's desk, agents on other tasks sit at the middle table, and idle agents take a break: coffee, a book, the armchair.
+Kilo Code already runs several agents at once: primary agents (Code, Plan, Debug, Orchestrator…), sub-agents it delegates to (Explore, General…), your own custom agents, and parallel sessions in the Agent Manager. But all of that happens in text. Star UI turns it into a little office, forked from [Star-Office-UI](https://github.com/ringhyacinth/Star-Office-UI): every Kilo agent is a character that walks to the room matching what it does. Working agents gather in the office around the lead's desk, with a laptop, a terminal or a book; idle ones take a break in the lounge; an agent in trouble scratches its head in the server room; one waiting for the API naps in the bedroom.
 
 ## Features
 
 - **One character per Kilo agent.** Built-in agents, sub-agents, your custom agents and cross-repo teammates all get a seat in the office. Several sessions of the same agent show up as `explore ×3`.
-- **Live activity from Kilo Code.** Tool calls, delegation, retries, context compaction, errors and pending approvals are mapped to the office (see the table below).
-- **Meetings you can follow.** When an agent delegates to others, they walk to its desk and a *Meeting* marker appears. Click it, or the meeting in the team list, to read the whole thread: your request, the briefs the lead sends to each teammate, their reasoning, the tools they run and their answers, updated live.
+- **Live activity from Kilo Code.** Tool calls, delegation, retries, context compaction, errors and pending approvals are mapped to rooms and animations (see the tables below). Characters walk around walls and furniture.
+- **Meetings you can follow.** When an agent delegates to others, they walk to its desk and a *Meeting* marker appears. Click it, or the meeting in the team list, to read the whole thread: your request, the briefs the lead sends to each teammate, their reasoning, the tools they run and their answers, updated live. Finished meetings move to *Past meetings*, under the team, where you can still read them.
 - **Redirect the team.** Write to a meeting to change direction. With *Stop the team first*, Star UI stops every agent of the meeting, then sends your message to the lead in the same conversation, so the lead re-plans with its team.
 - **Chat with any agent.** Click a character to open its conversation next to the office, with its reasoning and tool calls, and send it a message. It goes through Kilo Code, in the agent's current conversation or a new one, with the model Kilo Code would use. Sub-agents are started as a sub-task, just like an `@mention`.
 - **Stop buttons.** Stop one agent (and the sub-agents it started), a whole meeting, or everyone at once.
 - **"Needs you" alerts.** When an agent waits for a permission or asks a question, it shows a `!`, the status bar turns orange, and one click opens the conversation in Kilo Code.
+- **Agents that know their team.** At every turn, each agent, sub-agents included, is told its role, who its teammates are and what each of them does.
+- **Profiles: context, linked folders and memory.** Give the whole team, or one agent, a context of its own (stack, conventions, links) and folders it can read without asking, like other repositories. Agents save lasting notes with a `remember` tool; the notes come back in every briefing. All of it is editable from the office.
 - **A virtual team in one command.** *Star UI: Create a Virtual Team of Agents* writes ready-made Kilo agents with detailed role prompts: a manager that plans and dispatches work, and specialists that report back in a common format. Two presets: a general **Software team**, and a **Kubernetes & Go** team for operators and cloud services.
 - **Cross-repository teammates.** Declare "the expert of repo X" and "the expert of repo Y": your agents get an `ask_teammate` tool to consult each other across repositories.
-- **★ Star Office in the activity bar**, activity log, team list, status bar item and demo mode, in English or French.
+- **★ Star Office in the activity bar**, activity log, team list, status bar item and demo mode, in English or French. The office fits the space it has: side by side in a short panel, one tab per panel in a narrow one, with no page scroll.
 - **Model-agnostic.** Star UI never talks to a model. Kilo Code keeps using whatever provider you configured (GLM, GPT, Gemini, Mistral, local models…).
 
 ![Following a meeting: the lead's briefs, each teammate's work, and a message to redirect the team](images/screenshot-meeting.png)
@@ -48,6 +50,8 @@ Kilo Code does not expose an API to other extensions, but it runs the Kilo engin
 - listens to Kilo's event bus and forwards a **summary** of each agent's activity to the extension;
 - receives the messages you type in the office and sends them through Kilo's own, already authenticated client;
 - reads a conversation for the office chat when you open it, and stops sessions when you press *Stop*;
+- adds a briefing to each agent's system prompt (its role, its teammates, the profiles below), and the `remember` tool;
+- lets agents read their linked folders without asking, with Kilo's own permission rules, added when Kilo starts;
 - adds the `ask_teammate` tool when cross-repository teammates are configured;
 - talks to the extension over `http://127.0.0.1` with `node:http`, and adds `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` in the Kilo process, so a proxy set in VS Code (`http.proxy`) never handles loopback traffic.
 
@@ -73,14 +77,20 @@ The main character (the star, at the desk) follows the agent of your current Kil
 | waiting for your approval or answer | `!` above the character |
 | idle | lounge |
 
-The other agents:
+The other agents walk to the room that matches what they do, around walls and furniture:
 
-| Agent | Where |
-|---|---|
-| working in the main conversation (delegated by the lead) | around the lead's desk, with a *Meeting* marker |
-| working on another conversation | around the middle table |
-| error | bug corner |
-| idle | a quiet spot: coffee table, bookshelf, armchair; they change spot now and then, slowly |
+| Agent | Room | What it does there |
+|---|---|---|
+| working in the main conversation (delegated by the lead) | office, closest to the lead's desk, with a *Meeting* marker | depends on the activity, as below |
+| working on another conversation | office, farther from the desk | |
+| · editing, answering | | types on a laptop |
+| · thinking | | thought bubble |
+| · running commands, delegating | | terminal, spinning gear |
+| · reading, searching | | magnifying glass, or a book at the bookshelf |
+| · waiting for your approval or answer | | hops, with a `!` |
+| error | server room | question marks, head scratching |
+| API retry, offline, context compaction | bedroom | asleep on a futon |
+| idle | lounge | coffee, reading, beanbag, stretching; they change spot now and then, slowly |
 
 ### Which model answers messages sent from the office
 
@@ -91,6 +101,7 @@ The same one Kilo Code would use: the model picked for that agent in Kilo Code, 
 - Everything stays on your machine. The bridge only listens on `127.0.0.1`, uses a random port and token, and rejects browser requests.
 - Activity events carry agent names, session titles, tool names and short hints such as a file name, never file contents, prompts, model output or credentials.
 - Conversation text (messages, reasoning, tool names and titles) is read only while you have a chat or a meeting open in the office, only for that conversation, and only over `127.0.0.1`. Star UI does not store it: it is shown in the office and dropped when you close the panel. Long messages are truncated.
+- The briefing goes to the model with each request, like the rest of the system prompt: the roles of your agents, your profile contexts and notes, and a short summary of each linked folder (its file list, stack, and the start of its `AGENTS.md` or `README.md`). Profiles live in `~/.star-ui-kilo/profiles.json` (readable by you only). Link only folders the model may read.
 - The plugin swallows all of its errors, so it cannot break Kilo. Remove it at any time with *Star UI: Disconnect from Kilo Code*.
 - No network access: the extension and the plugin only use `127.0.0.1`; the office, fonts and art are bundled.
 - Messages sent from the office go through Kilo's normal permission system: Kilo still asks before running commands or editing files. *Stop* uses Kilo's own abort, like the stop button in Kilo Code.
@@ -127,6 +138,23 @@ Existing agent files are never overwritten.
 These are plain [Kilo agents](https://kilo.ai/docs). The manager is a primary agent (`mode: primary`): select it in Kilo Code, or click it in the office, and give it the whole task. It must delegate: it cannot edit files or run commands itself. The others use `mode: all`: the manager and Kilo's own agents can delegate to them, and you can talk to each of them directly. Every specialist ends with the same short report (summary, changes, verification, open points), which the manager checks before answering you.
 
 They use the model selected in Kilo Code unless you add a `model:` line, for example a stronger model for the manager and the architect. Edit the Markdown files freely: the office picks up any agent Kilo knows about, including ones you write yourself.
+
+## Profiles: context, linked folders and memory
+
+Every agent already knows its role and its teammates. Profiles add what only you know. Open them from the office:
+
+- **Team profile**: *✦ Team context & folders*, at the top of the team list. Given to every agent.
+- **Agent profile**: click a character, then the *Profile* tab. Given to that agent only, on top of the team profile.
+
+Each profile has:
+
+- **Context**: free text, for example your stack, conventions, where the docs live, what to avoid. Used from the next message.
+- **Linked folders**: other repositories or folders the agent can read without asking, like additional working directories. The briefing sums each one up (stack, top-level files, start of its README) so the agent knows what is there before looking. Edits in those folders still follow the agent's own permissions. Kilo reads permissions when it starts: reload the window after adding folders.
+- **Memory**: notes saved by the agents themselves with the `remember` tool, for themselves or for the whole team (a decision, a convention, a pitfall). They are part of every briefing; delete the ones you do not want from the profile.
+
+*Preview the briefing* shows the exact text an agent receives at each turn.
+
+![An agent's profile: its context, two linked folders and its memory](images/screenshot-profile.png)
 
 ## Cross-repository teammates
 
@@ -186,6 +214,8 @@ The **★ Star Office** view in the activity bar opens the office when you click
 - **Kilo Code 4.x / 5.x**: these versions use the legacy engine, which has no plugins. Update to Kilo Code 7 or later.
 - **"Kilo Code is still running the previous Star UI plugin"**: the Kilo plugin is updated with the extension, but Kilo loads plugins when it starts. Reload the window.
 - **The manager answers without delegating**: some small models skip tool calls. Pick a stronger model for the manager (`model:` in `manager.md`, or in Kilo Code).
+- **An agent still asks before reading a linked folder**: reload the window, so Kilo starts with the new folder rules.
+- **Hide Kilo's generic sub-agents** (`general`, `explore`) so the team does the work: add `"agent": { "general": { "disable": true }, "explore": { "disable": true } }` to `~/.config/kilo/kilo.jsonc`.
 
 ## Development
 
@@ -200,10 +230,11 @@ npm run preview && node dev/serve.mjs   # office + demo in a browser: http://loc
 - `npm i --no-save @kilocode/cli && KILO_BIN=node_modules/.bin/kilo node scripts/e2e-kilo.mjs` runs an end-to-end check against a real Kilo server. It uses an isolated Kilo config and never touches yours.
 - `KILO_EXTENSIONS_DIR=<dir with kilocode.kilo-code installed> npm run test:kilo` runs VS Code with the real Kilo Code extension and checks that its server loads the plugin.
 - `E2E_OFFLINE=1` makes npm unreachable during the Kilo end-to-end check; combine it with `HTTP_PROXY` to test proxy handling.
+- `npm run preview && node dev/serve.mjs`, then open `http://localhost:5317/?scenario=poses` to see one agent in each state.
 - `KILO_BIN=node_modules/.bin/kilo node scripts/team-probe.mjs` creates the virtual team in an isolated Kilo config, gives the manager a task, and lists the agents it delegated to. `PROBE_LOAD_ONLY=1` only checks that Kilo loads every role; `PROBE_ROLES` and `PROBE_MODEL` pick the roles and the model.
 - `npm run package` builds the `.vsix`.
 
-Project layout: `src/` holds the extension (bridge, office model, webview host), `plugin/` the Kilo plugin, `media/` the webview (Phaser scene adapted from Star-Office-UI, EN/FR strings, CSS, art), `test/` the tests.
+Project layout: `src/` holds the extension (bridge, office model, profiles, webview host), `plugin/` the Kilo plugin, `media/` the webview (Phaser scene adapted from Star-Office-UI, `guests.js` for the other agents' map and animations, EN/FR strings, CSS, art), `test/` the tests.
 
 ### Releasing
 

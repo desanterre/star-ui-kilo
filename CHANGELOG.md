@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5
+
+- Agents walk around walls and furniture, and go to the room that matches what they do: office when working, lounge when idle, server room on errors, bedroom during retries and compaction.
+- New animations for every state: laptop, terminal and gear, thought bubble, magnifying glass, book, coffee, beanbag, stretching, question marks, sleeping on a futon. Characters face the right way and pass behind furniture.
+- Team briefing: at every turn, each agent is told its role, its teammates and their roles, and the cross-repository experts.
+- Profiles for the team and for each agent: custom context, linked folders (readable without asking, summed up in the briefing) and memory. New `remember` tool for agents to save lasting notes. *Preview the briefing* in the office.
+- Finished meetings move to *Past meetings*, where they can still be read.
+- The office fits its panel without page scroll; panels become tabs in narrow views.
+- The demo is only offered while Kilo Code is not connected.
+
 ## 0.1.4
 
 - Office chat: click a character to open its conversation in a side panel, with messages, reasoning and tool calls, updated live; send it a message in its current conversation or a new one. Replaces the prompt dialog.

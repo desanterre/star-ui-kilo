@@ -2,7 +2,7 @@
   "name": "star-ui-kilo",
   "displayName": "Star UI for Kilo Code",
   "description": "A pixel-art office for your Kilo Code agents: watch your multi-agent team work, follow their meetings, and talk to any of them.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "desanterre",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "images/icon.png",
@@ -218,7 +218,12 @@
     "viewsWelcome": [
       {
         "view": "starUiKilo.home",
-        "contents": "Your Kilo Code agents, as a pixel office.\n[Open the office](command:starUiKilo.openOffice)\n[Connect to Kilo Code](command:starUiKilo.connect)\n[Create a virtual team](command:starUiKilo.createTeam)\n[Try the demo](command:starUiKilo.toggleDemo)\nThe office also lives in the bottom panel, next to the terminal."
+        "contents": "Your Kilo Code agents, as a pixel office.\n[Open the office](command:starUiKilo.openOffice)\n[Connect to Kilo Code](command:starUiKilo.connect)\n[Create a virtual team](command:starUiKilo.createTeam)\nThe office also lives in the bottom panel, next to the terminal."
+      },
+      {
+        "view": "starUiKilo.home",
+        "contents": "[Try the demo](command:starUiKilo.toggleDemo)",
+        "when": "!starUiKilo.kiloLive"
       }
     ]
   },

@@ -67,7 +67,7 @@ describe("webview html", () => {
       room: "office",
     })
     const nonce = html.match(/'nonce-([^']+)'/)![1]
-    assert.equal((html.match(new RegExp(`nonce="${nonce.replace(/[+/=]/g, "\\$&")}"`, "g")) || []).length, 3)
+    assert.equal((html.match(new RegExp(`nonce="${nonce.replace(/[+/=]/g, "\\$&")}"`, "g")) || []).length, 4)
     assert.ok(!html.includes("</script><script>alert(1)"))
     assert.match(html, /<html lang="fr">/)
     assert.match(html, /src="https:\/\/example\/media\/office\.js"/)

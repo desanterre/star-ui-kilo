@@ -70,6 +70,7 @@ export type PluginCommand =
   | { id: string; kind: "roster" }
   | { id: string; kind: "abort"; sessions: { sessionID: string; dir?: string }[] }
   | { id: string; kind: "messages"; sessionID: string; dir?: string }
+  | { id: string; kind: "briefing"; agent: string }
 
 export interface PluginResult {
   id: string
@@ -78,6 +79,26 @@ export interface PluginResult {
   error?: string
   /** Transcript for "messages" commands. */
   data?: TranscriptMessage[]
+  /** Text for "briefing" commands. */
+  text?: string
+}
+
+/** Whose profile: one agent's, or the whole team's (given to every agent). */
+export type ProfileTarget = { kind: "agent"; name: string } | { kind: "team" }
+
+export interface MemoryNote {
+  id: string
+  text: string
+  at: number
+  /** Agent that saved the note with the `remember` tool. */
+  by?: string
+}
+
+/** What an agent is told at each turn, besides its role and its teammates. */
+export interface AgentProfile {
+  context: string
+  folders: { path: string; note?: string }[]
+  memory: MemoryNote[]
 }
 
 /** A conversation as shown in the office chat (texts are truncated by the plugin). */
@@ -177,7 +198,10 @@ export interface ConnectionInfo {
 export interface OfficeSnapshot {
   main: CharacterView | null
   guests: CharacterView[]
+  /** Meetings in progress. */
   meetings: MeetingView[]
+  /** Finished meetings, newest first. */
+  pastMeetings: MeetingView[]
   log: LogEntry[]
   connection: ConnectionInfo
 }
@@ -201,6 +225,10 @@ export type ToWebview =
       messages?: TranscriptMessage[]
       error?: string
     }
+  | { type: "profile"; requestId: string; target: ProfileTarget; profile?: AgentProfile; error?: string }
+  | { type: "profileSaved"; requestId: string; ok: boolean; error?: string; reloadNeeded?: boolean }
+  | { type: "folders"; requestId: string; paths: string[] }
+  | { type: "briefing"; requestId: string; text?: string; error?: string }
 
 export type WebviewCommand =
   | "connect"
@@ -218,4 +246,9 @@ export type FromWebview =
   | { type: "openSession"; agent: string }
   | { type: "stop"; agent?: string; meetingID?: string }
   | { type: "transcript"; requestId: string; target: ChatTarget }
+  | { type: "profileLoad"; requestId: string; target: ProfileTarget }
+  | { type: "profileSave"; requestId: string; target: ProfileTarget; context: string; folders: { path: string; note?: string }[] }
+  | { type: "profileForget"; requestId: string; target: ProfileTarget; id: string }
+  | { type: "pickFolders"; requestId: string }
+  | { type: "briefing"; requestId: string; agent: string }
   | { type: "log"; level: "info" | "error"; message: string }

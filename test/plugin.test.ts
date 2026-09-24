@@ -278,6 +278,79 @@ describe("Kilo plugin", () => {
     assert.equal(tagged.dir, repo)
   })
 
+  it("briefs every agent with its role, its teammates, the contexts and the linked folders", async () => {
+    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "star-operator-"))
+    fs.writeFileSync(path.join(operator, "go.mod"), "module example.com/operator\n\ngo 1.22\n\nrequire sigs.k8s.io/controller-runtime v0.18.0\n")
+    fs.writeFileSync(path.join(operator, "README.md"), "# Operator\nReconciles Widgets.\n")
+    fs.mkdirSync(path.join(operator, "api"))
+    const docs = fs.mkdtempSync(path.join(os.tmpdir(), "star-docs-"))
+    fs.writeFileSync(
+      path.join(home, "profiles.json"),
+      JSON.stringify({
+        team: { context: "We ship Kubernetes operators.", folders: [docs] },
+        agents: { reviewer: { context: "Check RBAC first.", folders: [{ path: operator, note: "main repo" }] } },
+      }),
+    )
+    await hooks["chat.message"]({ sessionID: "sb1", agent: "reviewer" }, { message: {}, parts: [] })
+    const output = { system: ["base prompt"] }
+    await hooks["experimental.chat.system.transform"]({ sessionID: "sb1", model: {} }, output)
+    assert.equal(output.system.length, 2)
+    const text = output.system[1]
+    assert.match(text, /You are \*\*reviewer\*\*: Reviews code/)
+    assert.match(text, /## Your team\n[^#]*\*\*pinned\*\*/)
+    assert.ok(!/\*\*code\*\*/.test(text), "built-in agents are not listed as teammates")
+    assert.match(text, /\*\*api-expert\*\*: Knows the API/)
+    assert.match(text, /## Team context\nWe ship Kubernetes operators\./)
+    assert.match(text, /## Your context\nCheck RBAC first\./)
+    assert.ok(text.includes(`: ${operator} (main repo)`))
+    assert.match(text, /Go module example\.com\/operator \(go 1\.22\), uses sigs\.k8s\.io\/controller-runtime/)
+    assert.match(text, /> Reconciles Widgets\./)
+    assert.ok(text.includes(docs))
+
+    // Kilo's internal agents get nothing; unknown sessions are looked up.
+    await hooks["chat.message"]({ sessionID: "st", agent: "title" }, { message: {}, parts: [] })
+    const internal = { system: ["base"] }
+    await hooks["experimental.chat.system.transform"]({ sessionID: "st", model: {} }, internal)
+    assert.equal(internal.system.length, 1)
+    const unknown = { system: ["base"] }
+    await hooks["experimental.chat.system.transform"]({ sessionID: "ses_unknown", model: {} }, unknown)
+    assert.match(unknown.system[1], /You are \*\*manager\*\*/)
+
+    const viaBridge = await bridge.sendCommand({ pid: process.pid, dir: "/work/app" }, { kind: "briefing", agent: "reviewer" }, 8000)
+    assert.equal(viaBridge.ok, true)
+    assert.equal(viaBridge.text, text)
+  })
+
+  it("lets agents read their linked folders through Kilo's permission rules", async () => {
+    const profiles = JSON.parse(fs.readFileSync(path.join(home, "profiles.json"), "utf8"))
+    const [docs] = profiles.team.folders
+    const operator = profiles.agents.reviewer.folders[0].path
+    const config: any = { permission: { external_directory: "ask", edit: "ask" }, agent: { reviewer: { permission: { edit: "deny" } } } }
+    await hooks.config(config)
+    assert.deepEqual(config.permission, { external_directory: { "*": "ask", [`${docs}/*`]: "allow" }, edit: "ask" })
+    assert.deepEqual(config.agent.reviewer.permission, { edit: "deny", external_directory: { [`${operator}/*`]: "allow" } })
+    // A whole-config permission string is left alone.
+    const strict: any = { permission: "deny" }
+    await hooks.config(strict)
+    assert.equal(strict.permission, "deny")
+  })
+
+  it("saves notes with the remember tool, without touching the rest of the profiles", async () => {
+    const file = path.join(home, "profiles.json")
+    const team = await hooks.tool.remember.execute({ note: "Run make test before pushing.", scope: "team" }, { agent: "reviewer", sessionID: "sb1" })
+    assert.equal(team, "Saved in the team memory.")
+    const own = await hooks.tool.remember.execute({ note: "Webhooks live in api/webhook." }, { sessionID: "sb1" })
+    assert.equal(own, "Saved in the memory of reviewer.")
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"))
+    assert.equal(saved.team.context, "We ship Kubernetes operators.")
+    assert.equal(saved.team.memory[0].by, "reviewer")
+    assert.equal(saved.agents.reviewer.memory[0].text, "Webhooks live in api/webhook.")
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+    const output = { system: [] as string[] }
+    await hooks["experimental.chat.system.transform"]({ sessionID: "sb1", model: {} }, output)
+    assert.match(output.system[0], /## Memory\n.*\n- \[team, by reviewer\] Run make test before pushing\.\n- \[you\] Webhooks live in api\/webhook\./)
+  })
+
   it("prompts a teammate in its own repository", async () => {
     calls.length = 0
     const result = await bridge.sendCommand(
