@@ -1,0 +1,244 @@
+{
+  "name": "star-ui-kilo",
+  "displayName": "Star UI for Kilo Code",
+  "description": "A pixel-art office for your Kilo Code agents: watch your multi-agent team work, follow their meetings, and talk to any of them.",
+  "version": "0.1.4",
+  "publisher": "desanterre",
+  "license": "SEE LICENSE IN LICENSE",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/desanterre/star-ui-kilo#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/desanterre/star-ui-kilo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/desanterre/star-ui-kilo/issues"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "kilo",
+    "kilo code",
+    "kilocode",
+    "multi-agent",
+    "agents",
+    "pixel art",
+    "star office",
+    "dashboard"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "starUiKilo",
+          "title": "Star Office",
+          "icon": "images/panel-icon.svg"
+        }
+      ],
+      "activitybar": [
+        {
+          "id": "starUiKiloBar",
+          "title": "Star Office",
+          "icon": "images/panel-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "starUiKilo": [
+        {
+          "type": "webview",
+          "id": "starUiKilo.office",
+          "name": "Star Office"
+        }
+      ],
+      "starUiKiloBar": [
+        {
+          "id": "starUiKilo.home",
+          "name": "Star Office"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "starUiKilo.openOffice",
+        "title": "Open the Office in an Editor Tab",
+        "category": "Star UI",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "starUiKilo.connect",
+        "title": "Connect to Kilo Code",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.disconnect",
+        "title": "Disconnect from Kilo Code",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.createTeam",
+        "title": "Create a Virtual Team of Agents",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.addTeammate",
+        "title": "Add a Teammate from Another Repository",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.editTeamFile",
+        "title": "Edit the Cross-Repository Team File",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.toggleDemo",
+        "title": "Toggle Demo Mode",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.openKilo",
+        "title": "Open Kilo Code",
+        "category": "Star UI"
+      },
+      {
+        "command": "starUiKilo.showLog",
+        "title": "Show Log",
+        "category": "Star UI"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "starUiKilo.openOffice",
+          "when": "view == starUiKilo.office",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Star UI for Kilo Code",
+      "properties": {
+        "starUiKilo.language": {
+          "type": "string",
+          "enum": [
+            "en",
+            "fr",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "English",
+            "Fran\u00e7ais",
+            "Follow the VS Code display language (French if VS Code is in French, English otherwise)"
+          ],
+          "default": "en",
+          "description": "Language of the office."
+        },
+        "starUiKilo.officeName": {
+          "type": "string",
+          "default": "",
+          "description": "Text on the office plaque. Empty = \"Kilo Office\"."
+        },
+        "starUiKilo.room": {
+          "type": "string",
+          "enum": [
+            "office",
+            "lodge"
+          ],
+          "enumDescriptions": [
+            "The classic Star Office",
+            "A snowy mountain lodge"
+          ],
+          "default": "office",
+          "description": "Background of the office."
+        },
+        "starUiKilo.scope": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Kilo Code of this window, plus Kilo CLI sessions running inside this workspace",
+            "Every Kilo session on this machine"
+          ],
+          "default": "workspace",
+          "description": "Which Kilo sessions appear in the office."
+        },
+        "starUiKilo.showBuiltInAgents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Kilo's built-in agents (plan, debug, explore...) in the office even when they are idle."
+        },
+        "starUiKilo.lingerSeconds": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "description": "How long an agent stays at its desk after finishing, before going back to the lounge."
+        },
+        "starUiKilo.openConversationAfterPrompt": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open the Kilo Code conversation after sending a prompt from the office."
+        },
+        "starUiKilo.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Star Office item in the status bar."
+        },
+        "starUiKilo.kiloConfigDir": {
+          "type": "string",
+          "default": "",
+          "description": "Kilo config folder where the plugin is installed. Empty = KILO_CONFIG_DIR, or ~/.config/kilo."
+        }
+      }
+    },
+    "viewsWelcome": [
+      {
+        "view": "starUiKilo.home",
+        "contents": "Your Kilo Code agents, as a pixel office.\n[Open the office](command:starUiKilo.openOffice)\n[Connect to Kilo Code](command:starUiKilo.connect)\n[Create a virtual team](command:starUiKilo.createTeam)\n[Try the demo](command:starUiKilo.toggleDemo)\nThe office also lives in the bottom panel, next to the terminal."
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node scripts/build.mjs --tests && node --test --test-reporter=spec \"out/test/*.test.js\"",
+    "preview": "node scripts/preview.mjs",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "node scripts/build.mjs --production",
+    "test:vscode": "node scripts/build.mjs && node test/vscode/run.mjs",
+    "test:kilo": "node scripts/build.mjs && node test/vscode/run-kilo.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

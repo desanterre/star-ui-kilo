@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Renders the extension icon (128x128) from the Star sprite. Screenshot it with headless Chrome. -->
+<html><head><meta charset="utf-8"></head><body style="margin:0;background:transparent">
+<canvas id="c" width="128" height="128"></canvas>
+<script>
+const img = new Image()
+img.onload = () => {
+  const c = document.getElementById("c").getContext("2d")
+  c.imageSmoothingEnabled = false
+  const r = 22
+  c.fillStyle = "#1a1a2e"
+  c.beginPath(); c.roundRect(0, 0, 128, 128, r); c.fill()
+  c.strokeStyle = "#64477d"; c.lineWidth = 6
+  c.beginPath(); c.roundRect(3, 3, 122, 122, r - 3); c.stroke()
+  // frame 0 of the "working" sheet: 300x300 cells
+  c.drawImage(img, 30, 20, 240, 240, 4, 8, 120, 120)
+  // small pixel star, top-right
+  const star = ["...#...", "...#...", "#######", ".#####.", "..###..", ".##.##.", "#.....#"]
+  c.fillStyle = "#ffd700"
+  star.forEach((row, y) => [...row].forEach((px, x) => px === "#" && c.fillRect(96 + x * 3, 10 + y * 3, 3, 3)))
+  document.title = "ready"
+}
+img.src = "/media/assets/star-working-spritesheet-grid.webp"
+</script></body></html>
