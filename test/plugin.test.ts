@@ -325,10 +325,12 @@ describe("Kilo plugin", () => {
     const profiles = JSON.parse(fs.readFileSync(path.join(home, "profiles.json"), "utf8"))
     const [docs] = profiles.team.folders
     const operator = profiles.agents.reviewer.folders[0].path
+    // Windows paths are allowed with both separators.
+    const rules = (dir: string) => ({ [`${dir}/*`]: "allow", ...(dir.includes("\\") ? { [`${dir.replace(/\\/g, "/")}/*`]: "allow" } : {}) })
     const config: any = { permission: { external_directory: "ask", edit: "ask" }, agent: { reviewer: { permission: { edit: "deny" } } } }
     await hooks.config(config)
-    assert.deepEqual(config.permission, { external_directory: { "*": "ask", [`${docs}/*`]: "allow" }, edit: "ask" })
-    assert.deepEqual(config.agent.reviewer.permission, { edit: "deny", external_directory: { [`${operator}/*`]: "allow" } })
+    assert.deepEqual(config.permission, { external_directory: { "*": "ask", ...rules(docs) }, edit: "ask" })
+    assert.deepEqual(config.agent.reviewer.permission, { edit: "deny", external_directory: rules(operator) })
     // A whole-config permission string is left alone.
     const strict: any = { permission: "deny" }
     await hooks.config(strict)
@@ -345,7 +347,7 @@ describe("Kilo plugin", () => {
     assert.equal(saved.team.context, "We ship Kubernetes operators.")
     assert.equal(saved.team.memory[0].by, "reviewer")
     assert.equal(saved.agents.reviewer.memory[0].text, "Webhooks live in api/webhook.")
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+    if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600)
     const output = { system: [] as string[] }
     await hooks["experimental.chat.system.transform"]({ sessionID: "sb1", model: {} }, output)
     assert.match(output.system[0], /## Memory\n.*\n- \[team, by reviewer\] Run make test before pushing\.\n- \[you\] Webhooks live in api\/webhook\./)

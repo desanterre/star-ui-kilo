@@ -27,7 +27,7 @@ describe("profiles", () => {
     })
     assert.equal(readProfile(file, { kind: "agent", name: "architect" }).context, "arch")
     assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).version, 1)
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+    if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600)
 
     forgetNote(file, { kind: "team" }, "n1")
     assert.deepEqual(readProfile(file, { kind: "team" }).memory, [])
