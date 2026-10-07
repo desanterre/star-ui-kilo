@@ -1,8 +1,8 @@
 name: Release
 
 # Publishing only happens from a v* tag. Tags and main are protected by rulesets (owner only),
-# and the publish job runs in the "marketplace" environment, which requires the owner's approval
-# and is the only place where publishing credentials are available.
+# and the publish job runs in the "marketplace" environment, which only accepts v* tags and is the
+# only place where publishing credentials are available.
 on:
   push:
     tags: ["v*"]
