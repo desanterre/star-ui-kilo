@@ -238,7 +238,7 @@ Project layout: `src/` holds the extension (bridge, office model, profiles, webv
 
 ### Releasing
 
-Releases are published by GitHub Actions when a `v*` tag is pushed. The publish job runs in the protected `marketplace` environment and needs the owner's approval. See [RELEASING.md](RELEASING.md).
+Releases are published by GitHub Actions when a `v*` tag is pushed (only the owner can push one): Open VSX through trusted publishing, without a stored token, and a GitHub release with the `.vsix`. See [RELEASING.md](RELEASING.md).
 
 ## Credits and license
 

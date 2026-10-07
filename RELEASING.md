@@ -8,8 +8,8 @@ Releases are built and published by GitHub Actions ([`.github/workflows/release.
 |---|---|---|
 | Push to `main` | repository owner only | ruleset "Protect main": updates, force pushes and deletion are restricted to repository admins |
 | Create / move / delete `v*` tags (releases) | repository owner only | ruleset "Protect release tags" |
-| Run the publish job | repository owner only | environment `marketplace` requires the owner's approval and only accepts `v*` tags |
-| Read publishing credentials | nobody | GitHub secrets are write-only (no one can read them back, not even the owner). They live in the `marketplace` environment, so only the approved publish job can use them |
+| Run the publish job | repository owner only | only a `v*` tag starts it, and only the owner can create those tags; environment `marketplace` only accepts `v*` tags |
+| Read publishing credentials | nobody | GitHub secrets are write-only (no one can read them back, not even the owner). They live in the `marketplace` environment, so only the publish job can use them |
 | Fork pull requests | anyone | CI runs with a read-only token and no secrets; workflows from outside contributors need the owner's approval |
 
 Actions are pinned to full commit SHAs. The CI job never has access to secrets.
@@ -40,7 +40,7 @@ Actions are pinned to full commit SHAs. The CI job never has access to secrets.
      gh secret set OVSX_PAT --env marketplace --repo desanterre/star-ui-kilo
      ```
 
-   - Automated, without a stored token: once open-vsx.org lets you register a trusted publisher (repository `desanterre/star-ui-kilo`, workflow `release.yml`, environment `marketplace`), set the `OPENVSX_TRUSTED_PUBLISHING` environment variable to `true`. The workflow then exchanges its OIDC token for a short-lived one.
+   - Automated, without a stored token (**active**): a trusted publisher is registered on <https://open-vsx.org/user-settings/trusted-publishers> (repository `desanterre/star-ui-kilo`, workflow `release.yml`, environment `marketplace`), and the `OPENVSX_TRUSTED_PUBLISHING` environment variable is `true`. The workflow exchanges its OIDC token for a short-lived one.
 
 ## Cutting a release
 
@@ -52,7 +52,7 @@ git push
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-Then open **Actions › Release** and approve the `marketplace` deployment. The workflow checks that the tag matches `package.json`, runs the tests, packages the `.vsix`, publishes it to the Marketplace and Open VSX when credentials are configured, and always attaches it to a GitHub release.
+The tag starts **Actions › Release**: it checks that the tag matches `package.json`, runs the tests, packages the `.vsix`, publishes it to Open VSX (trusted publishing) and to the Marketplace when credentials are configured, and always attaches it to a GitHub release. No approval is needed: only the owner can push `v*` tags. To require one again, add yourself as a required reviewer of the `marketplace` environment.
 
 **Without Marketplace credentials:** download the `.vsix` from the GitHub release (or build it with `npm run package`). Then on <https://marketplace.visualstudio.com/manage/publishers/desanterre>:
 - first release: **New extension › Visual Studio Code**, then drop the file;
