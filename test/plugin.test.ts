@@ -294,8 +294,9 @@ describe("Kilo plugin", () => {
     await hooks["chat.message"]({ sessionID: "sb1", agent: "reviewer" }, { message: {}, parts: [] })
     const output = { system: ["base prompt"] }
     await hooks["experimental.chat.system.transform"]({ sessionID: "sb1", model: {} }, output)
-    assert.equal(output.system.length, 2)
-    const text = output.system[1]
+    assert.equal(output.system.length, 1)
+    assert.ok(output.system[0].startsWith("base prompt\n\n"), "the briefing is appended to Kilo's own system prompt")
+    const text = output.system[0].slice("base prompt".length + 2)
     assert.match(text, /You are \*\*reviewer\*\*: Reviews code/)
     assert.match(text, /## Your team\n[^#]*\*\*pinned\*\*/)
     assert.ok(!/\*\*code\*\*/.test(text), "built-in agents are not listed as teammates")
@@ -312,9 +313,11 @@ describe("Kilo plugin", () => {
     const internal = { system: ["base"] }
     await hooks["experimental.chat.system.transform"]({ sessionID: "st", model: {} }, internal)
     assert.equal(internal.system.length, 1)
+    assert.equal(internal.system[0], "base")
     const unknown = { system: ["base"] }
     await hooks["experimental.chat.system.transform"]({ sessionID: "ses_unknown", model: {} }, unknown)
-    assert.match(unknown.system[1], /You are \*\*manager\*\*/)
+    assert.equal(unknown.system.length, 1)
+    assert.match(unknown.system[0], /You are \*\*manager\*\*/)
 
     const viaBridge = await bridge.sendCommand({ pid: process.pid, dir: "/work/app" }, { kind: "briefing", agent: "reviewer" }, 8000)
     assert.equal(viaBridge.ok, true)

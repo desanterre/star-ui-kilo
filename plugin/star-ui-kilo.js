@@ -1025,7 +1025,13 @@ export const StarUiKiloPlugin = async (input) => {
         if (!sid || !output || !Array.isArray(output.system)) return
         const agent = await agentOf(sid, ctx)
         if (!agent || INTERNAL_AGENTS.has(agent)) return
-        output.system.push(await briefing(agent, ctx))
+        const text = await briefing(agent, ctx)
+        // Kilo turns every entry of this array into its own system message, and a
+        // second one right after the first breaks strict OpenAI endpoints (vLLM
+        // behind LiteLLM: "System message must be at the beginning"). Keep it in
+        // the entry Kilo already built, so there stays a single system message.
+        if (output.system.length) output.system[0] = [output.system[0], text].filter((x) => x).join("\n\n")
+        else output.system.push(text)
       } catch {}
     },
     event: async ({ event }) => {
